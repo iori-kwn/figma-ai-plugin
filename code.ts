@@ -409,7 +409,7 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
       };
     }
 
-    // APIリクエストを送信
+    // APIリクエストを試行
     try {
       const systemPrompt = `あなたはFigmaのデザインノードを生成するAIアシスタントです。
 ユーザーの入力に基づいて、Figmaで表示できるデザイン要素のJSONスキーマを返してください。
@@ -438,9 +438,8 @@ JSONの形式は以下の通りです:
 
 返答はJSONオブジェクトのみにしてください。JSONの中で最低1つのFRAMEノードを含めてください。`;
 
-      // プロキシサーバーのURLを設定
-      // デプロイ後のVercelのURLに更新する必要があります
-      const proxyUrl = 'https://figma-claude-proxy.vercel.app/api/proxy';
+      // プロキシサーバーのURL
+      const proxyUrl = 'https://figma-claude-design-plugin.vercel.app/api/proxy';
 
       // リクエストデータの作成
       const baseRequest: ClaudeRequestBase = {
@@ -470,56 +469,77 @@ JSONの形式は以下の通りです:
         };
       }
 
-      console.log('Sending API request to proxy server');
+      console.log('Trying to connect to proxy server...');
       console.log('Request data:', JSON.stringify(requestData, null, 2));
 
-      // プロキシサーバー経由でAPIリクエストを送信
-      const response = await fetch(proxyUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': currentApiSettings.apiKey,
-        },
-        body: JSON.stringify(requestData),
-      });
+      // 通常のフェッチを試行
+      try {
+        const response = await fetch(proxyUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': currentApiSettings.apiKey,
+          },
+          body: JSON.stringify(requestData),
+        });
 
-      // レスポンスが正常でない場合はエラーをスロー
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(`API error: ${response.status} - ${JSON.stringify(errorData)}`);
-      }
-
-      // レスポンスをJSONとして解析
-      const data = await response.json();
-      console.log('API response received:', data);
-
-      // レスポンスから必要なデータを抽出
-      if (data.content && data.content[0] && data.content[0].text) {
-        try {
-          // レスポンステキストからJSONを抽出して解析
-          const jsonMatch =
-            data.content[0].text.match(/```json\n([\s\S]*?)\n```/) ||
-            data.content[0].text.match(/```\n([\s\S]*?)\n```/) ||
-            data.content[0].text.match(/{[\s\S]*?}/);
-
-          if (jsonMatch) {
-            const jsonText = jsonMatch[1] || jsonMatch[0];
-            const parsedResponse = JSON.parse(jsonText);
-            console.log('Parsed JSON response:', parsedResponse);
-            return parsedResponse;
-          }
-        } catch (jsonError) {
-          console.error('Error parsing JSON from response:', jsonError);
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
         }
-      }
 
-      console.log('Failed to extract design data from API response, using mock data');
+        // レスポンスをJSONとして解析
+        const data = await response.json();
+        console.log('API response received:', data);
+
+        // レスポンスから必要なデータを抽出
+        if (data.content && data.content[0] && data.content[0].text) {
+          try {
+            // レスポンステキストからJSONを抽出して解析
+            const jsonMatch =
+              data.content[0].text.match(/```json\n([\s\S]*?)\n```/) ||
+              data.content[0].text.match(/```\n([\s\S]*?)\n```/) ||
+              data.content[0].text.match(/{[\s\S]*?}/);
+
+            if (jsonMatch) {
+              const jsonText = jsonMatch[1] || jsonMatch[0];
+              const parsedResponse = JSON.parse(jsonText);
+              console.log('Successfully parsed JSON response');
+              return parsedResponse;
+            }
+          } catch (jsonError) {
+            console.error('Failed to parse JSON from response:', jsonError);
+          }
+        }
+
+        console.log('Could not extract valid JSON from API response, using mock data');
+      } catch (err) {
+        console.log('Standard fetch failed:', err);
+
+        // no-corsモードを試す（この方法はコンパイルエラーになるため、コードを無効化）
+        console.log('Note: Cannot use no-cors mode due to TypeScript constraints');
+        /* 以下のコードはコンパイルエラーになるため、コメントアウト
+          try {
+            await fetch(proxyUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'x-api-key': currentApiSettings.apiKey,
+              },
+              body: JSON.stringify(requestData),
+              mode: 'no-cors',
+            });
+            console.log('no-cors request sent (but cannot read response)');
+          } catch (noCorsErr) {
+            console.error('no-cors request also failed:', noCorsErr);
+          }
+          */
+      }
     } catch (fetchError) {
-      console.error('Fetch error details:', fetchError);
-      console.log('Continuing with mock data due to API connection issues');
+      console.error('API request error:', fetchError);
     }
 
-    // モックデータを返す（現状APIからのレスポンスは読めないため）
+    // APIリクエストが成功しなかった場合はモックデータを返す
+    console.log('Using mock data as fallback');
     return mockResponse;
   } catch (error) {
     console.error('Error in sendToClaudeApi:', error);

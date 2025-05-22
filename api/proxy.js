@@ -2,10 +2,10 @@
 // This file should be deployed to Vercel
 
 export default async function handler(req, res) {
-  // Set CORS headers for preflight requests
+  // Set CORS headers for all responses
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Authorization');
   res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
 
   // Handle OPTIONS request (preflight)
@@ -47,10 +47,17 @@ export default async function handler(req, res) {
     console.log('Response status:', response.status);
     console.log('Response data:', JSON.stringify(data).substring(0, 500) + '...');
 
+    // Set additional CORS headers again to ensure they're present
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
     // Return the data
     return res.status(response.status).json(data);
   } catch (error) {
     console.error('Proxy server error:', error);
+
+    // Set CORS headers even for error responses
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
     return res.status(500).json({
       error: 'An error occurred while processing your request',
       details: error.message,
