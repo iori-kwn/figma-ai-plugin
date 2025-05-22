@@ -1,15 +1,6 @@
 // Vercel serverless function to proxy requests to Claude API
-// This file should be deployed to Vercel
-import fetch from 'node-fetch';
-
-// For ESM compatibility
-const consoleMethods = {
-  log: (...args) => console.log(...args),
-  error: (...args) => console.error(...args),
-};
-
 export default async function handler(req, res) {
-  // Set CORS headers for all responses
+  // Set CORS headers for all responses (critical)
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Authorization, anthropic-version');
@@ -33,9 +24,6 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'API key is required' });
     }
 
-    // Log the request for debugging (in production, you might want to remove this)
-    consoleMethods.log('Request body:', JSON.stringify(req.body));
-
     // Forward the request to Claude API
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -50,17 +38,11 @@ export default async function handler(req, res) {
     // Get the response data
     const data = await response.json();
 
-    // Log the response for debugging (in production, you might want to remove this)
-    consoleMethods.log('Response status:', response.status);
-    consoleMethods.log('Response data:', JSON.stringify(data).substring(0, 500) + '...');
-
     // Return the data with CORS headers
-    res.status(response.status).json(data);
+    return res.status(response.status).json(data);
   } catch (error) {
-    consoleMethods.error('Proxy server error:', error);
-
     // Return error with CORS headers
-    res.status(500).json({
+    return res.status(500).json({
       error: 'An error occurred while processing your request',
       details: error.message,
     });
