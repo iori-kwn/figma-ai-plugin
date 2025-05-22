@@ -13,7 +13,8 @@
       "https://api.anthropic.com",
       "https://*.anthropic.com",
       "https://claude-proxy-server-qhieovdjm-yoriss67s-projects.vercel.app",
-      "https://figma-claude-proxy.vercel.app"
+      "https://figma-claude-proxy.vercel.app",
+      "https://figma-claude-design-plugin.vercel.app"
     ],
     "reasoning": "Claude APIを使用してテキストからデザインを生成するため"
   }
