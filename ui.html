@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style>
+      body {
+        font-family: Inter, sans-serif;
+        margin: 0;
+        padding: 16px;
+      }
+
+      #chat-container {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        gap: 12px;
+      }
+
+      h2 {
+        margin-top: 0;
+        font-size: 16px;
+        font-weight: 600;
+      }
+
+      #prompt-input {
+        width: 100%;
+        min-height: 80px;
+        padding: 8px;
+        border: 1px solid #e5e5e5;
+        border-radius: 4px;
+        resize: vertical;
+        font-family: inherit;
+      }
+
+      #generate-btn {
+        background-color: #18a0fb;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 6px;
+        font-weight: 500;
+        cursor: pointer;
+      }
+
+      #generate-btn:hover {
+        background-color: #0d8de3;
+      }
+
+      .input-group {
+        margin-bottom: 10px;
+      }
+
+      .input-group label {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 12px;
+        color: #333;
+      }
+
+      .input-group input,
+      .input-group select {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid #e5e5e5;
+        border-radius: 4px;
+        font-family: inherit;
+      }
+
+      #api-key-container {
+        background-color: #f5f5f5;
+        padding: 12px;
+        border-radius: 6px;
+        margin-bottom: 16px;
+      }
+
+      #save-key-btn {
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+        margin-top: 8px;
+      }
+
+      .tabs {
+        display: flex;
+        margin-bottom: 12px;
+      }
+
+      .tab {
+        padding: 8px 16px;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+      }
+
+      .tab.active {
+        border-color: #18a0fb;
+        font-weight: 500;
+      }
+
+      .tab-content {
+        display: none;
+      }
+
+      .tab-content.active {
+        display: block;
+      }
+
+      #status {
+        margin-top: 8px;
+        font-size: 14px;
+        color: #666;
+      }
+
+      .success-message {
+        color: #4caf50;
+        font-weight: 500;
+      }
+
+      .error-message {
+        color: #f44336;
+        font-weight: 500;
+      }
+
+      .loading-spinner {
+        display: inline-block;
+        width: 16px;
+        height: 16px;
+        border: 2px solid rgba(0, 0, 0, 0.1);
+        border-radius: 50%;
+        border-top-color: #18a0fb;
+        animation: spin 1s ease-in-out infinite;
+        margin-right: 6px;
+      }
+
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      #opt-out {
+        margin-top: 12px;
+        font-size: 12px;
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="chat-container">
+      <div class="tabs">
+        <div class="tab active" data-tab="design">デザイン生成</div>
+        <div class="tab" data-tab="settings">設定</div>
+      </div>
+
+      <div id="design-tab" class="tab-content active">
+        <textarea
+          id="prompt-input"
+          placeholder="デザインの説明を入力してください..."
+        ></textarea>
+        <button id="generate-btn">デザイン生成</button>
+        <div id="status"></div>
+        <div id="opt-out">
+          <label>
+            <input type="checkbox" id="disable-learning" checked />
+            ユーザーデータを学習に使用しない
+          </label>
+        </div>
+      </div>
+
+      <div id="settings-tab" class="tab-content">
+        <div id="api-key-container">
+          <div class="input-group">
+            <label for="api-service">AIサービス:</label>
+            <select id="api-service">
+              <option value="anthropic">Anthropic Claude</option>
+            </select>
+          </div>
+          <div class="input-group">
+            <label for="api-key">APIキー:</label>
+            <input type="password" id="api-key" placeholder="sk-..." />
+          </div>
+          <div class="input-group">
+            <label for="api-model">モデル:</label>
+            <select id="api-model">
+              <option value="claude-3-5-sonnet-20240620">
+                Claude 3.5 Sonnet
+              </option>
+              <option value="claude-3-7-sonnet-20240307">
+                Claude 3.7 Sonnet
+              </option>
+              <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+              <option value="claude-3-sonnet-20240229">Claude 3 Sonnet</option>
+            </select>
+          </div>
+          <button id="save-key-btn">設定を保存</button>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      // APIキーが保存されているか確認
+      document.addEventListener('DOMContentLoaded', () => {
+        // タブの初期化
+        initTabs();
+
+        // プラグインにAPIキー情報をリクエスト
+        parent.postMessage(
+          {
+            pluginMessage: { type: 'get-api-settings' },
+          },
+          '*',
+        );
+      });
+
+      // タブ切り替え機能
+      function initTabs() {
+        const tabs = document.querySelectorAll('.tab');
+        tabs.forEach((tab) => {
+          tab.addEventListener('click', () => {
+            // 全てのタブとコンテンツを非アクティブ化
+            document
+              .querySelectorAll('.tab')
+              .forEach((t) => t.classList.remove('active'));
+            document
+              .querySelectorAll('.tab-content')
+              .forEach((c) => c.classList.remove('active'));
+
+            // クリックされたタブとそれに対応するコンテンツをアクティブ化
+            const tabName = tab.getAttribute('data-tab');
+            tab.classList.add('active');
+            document.getElementById(`${tabName}-tab`).classList.add('active');
+          });
+        });
+      }
+
+      // APIキー保存ボタンのクリックイベント
+      document.getElementById('save-key-btn').onclick = () => {
+        const apiService = document.getElementById('api-service').value;
+        const apiKey = document.getElementById('api-key').value;
+        const apiModel = document.getElementById('api-model').value;
+
+        // 入力チェック
+        if (!apiKey.trim()) {
+          document.getElementById('status').textContent =
+            '⚠️ APIキーを入力してください';
+          return;
+        }
+
+        // プラグインにメッセージ送信
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: 'save-api-settings',
+              apiService,
+              apiKey,
+              apiModel,
+            },
+          },
+          '*',
+        );
+      };
+
+      // 生成ボタンのクリックイベント
+      document.getElementById('generate-btn').onclick = () => {
+        const prompt = document.getElementById('prompt-input').value;
+        const disableLearning =
+          document.getElementById('disable-learning').checked;
+
+        // 入力チェック
+        if (!prompt.trim()) {
+          document.getElementById('status').textContent =
+            '⚠️ プロンプトを入力してください';
+          return;
+        }
+
+        // ステータス表示
+        document.getElementById('status').textContent = '生成中...';
+
+        // プラグインにメッセージ送信
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: 'generate-design',
+              prompt: prompt,
+              disableLearning: disableLearning,
+            },
+          },
+          '*',
+        );
+      };
+
+      // プラグインからのメッセージ受信
+      onmessage = (event) => {
+        const msg = event.data.pluginMessage;
+
+        if (msg.type === 'status') {
+          // ステータスメッセージ表示（ローディングスピナー付き）
+          document.getElementById(
+            'status',
+          ).innerHTML = `<span class="loading-spinner"></span> ${msg.message}`;
+        } else if (msg.type === 'error') {
+          // エラーメッセージ表示
+          let errorMessage = msg.message;
+
+          // APIキーエラーの場合はより詳細な情報を表示
+          if (errorMessage.includes('API key')) {
+            errorMessage +=
+              '<br><small>設定タブでAPIキーを確認してください</small>';
+          } else if (errorMessage.includes('API error')) {
+            errorMessage +=
+              '<br><small>プロキシサーバーまたはClaude APIとの接続に問題があります</small>';
+          }
+
+          document.getElementById(
+            'status',
+          ).innerHTML = `<span class="error-message">⚠️ ${errorMessage}</span>`;
+        } else if (msg.type === 'success') {
+          // 成功メッセージ表示
+          document.getElementById(
+            'status',
+          ).innerHTML = `<span class="success-message">✅ ${msg.message}</span>`;
+        } else if (msg.type === 'api-settings') {
+          // 保存されたAPI設定をフォームに設定
+          if (msg.apiKey) {
+            document.getElementById('api-key').value = msg.apiKey;
+          }
+          if (msg.apiService) {
+            document.getElementById('api-service').value = msg.apiService;
+          }
+          if (msg.apiModel) {
+            document.getElementById('api-model').value = msg.apiModel;
+          }
+        }
+      };
+    </script>
+  </body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "layermate-like-plugin",
+  "id": "1506960986074442619",
+  "api": "1.0.0",
+  "main": "code.js",
+  "capabilities": [],
+  "enableProposedApi": false,
+  "documentAccess": "dynamic-page",
+  "editorType": ["figma"],
+  "ui": "ui.html",
+  "networkAccess": {
+    "allowedDomains": [
+      "https://api.anthropic.com",
+      "https://*.anthropic.com",
+      "https://claude-proxy-server-qhieovdjm-yoriss67s-projects.vercel.app",
+      "https://figma-claude-proxy.vercel.app"
+    ],
+    "reasoning": "Claude APIを使用してテキストからデザインを生成するため"
+  }
+}
