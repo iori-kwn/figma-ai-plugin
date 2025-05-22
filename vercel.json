@@ -6,13 +6,7 @@
       "maxDuration": 10
     }
   },
-  "routes": [
-    {
-      "src": "/api/proxy",
-      "dest": "/api/proxy.js",
-      "methods": ["POST", "OPTIONS"]
-    }
-  ],
+  "rewrites": [{ "source": "/api/proxy", "destination": "/api/proxy.js" }],
   "headers": [
     {
       "source": "/api/(.*)",
