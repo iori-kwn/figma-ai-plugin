@@ -1,11 +1,18 @@
 // Vercel serverless function to proxy requests to Claude API
 // This file should be deployed to Vercel
+import fetch from 'node-fetch';
+
+// For ESM compatibility
+const consoleMethods = {
+  log: (...args) => console.log(...args),
+  error: (...args) => console.error(...args),
+};
 
 export default async function handler(req, res) {
   // Set CORS headers for all responses
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Authorization');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key, Authorization, anthropic-version');
   res.setHeader('Access-Control-Max-Age', '86400'); // 24 hours
 
   // Handle OPTIONS request (preflight)
@@ -27,7 +34,7 @@ export default async function handler(req, res) {
     }
 
     // Log the request for debugging (in production, you might want to remove this)
-    console.log('Request body:', JSON.stringify(req.body));
+    consoleMethods.log('Request body:', JSON.stringify(req.body));
 
     // Forward the request to Claude API
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -44,21 +51,16 @@ export default async function handler(req, res) {
     const data = await response.json();
 
     // Log the response for debugging (in production, you might want to remove this)
-    console.log('Response status:', response.status);
-    console.log('Response data:', JSON.stringify(data).substring(0, 500) + '...');
+    consoleMethods.log('Response status:', response.status);
+    consoleMethods.log('Response data:', JSON.stringify(data).substring(0, 500) + '...');
 
-    // Set additional CORS headers again to ensure they're present
-    res.setHeader('Access-Control-Allow-Origin', '*');
-
-    // Return the data
-    return res.status(response.status).json(data);
+    // Return the data with CORS headers
+    res.status(response.status).json(data);
   } catch (error) {
-    console.error('Proxy server error:', error);
+    consoleMethods.error('Proxy server error:', error);
 
-    // Set CORS headers even for error responses
-    res.setHeader('Access-Control-Allow-Origin', '*');
-
-    return res.status(500).json({
+    // Return error with CORS headers
+    res.status(500).json({
       error: 'An error occurred while processing your request',
       details: error.message,
     });

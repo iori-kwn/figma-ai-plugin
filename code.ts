@@ -102,7 +102,7 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
     }
 
     // デバッグ用: プロキシURLとAPIキーの最初の数文字を表示
-    console.log('Using proxy URL:', 'https://claude-proxy-server-qhieovdjm-yoriss67s-projects.vercel.app/api/proxy');
+    console.log('Using proxy URL:', 'https://figma-claude-design-plugin.vercel.app/api/proxy');
     console.log(
       'API Key provided:',
       currentApiSettings.apiKey
