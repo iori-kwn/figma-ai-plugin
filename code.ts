@@ -11,8 +11,9 @@ type ApiSettings = {
 interface ClaudeRequestBase {
   model: string;
   max_tokens: number;
+  system: string;
   messages: {
-    role: 'system' | 'user' | 'assistant';
+    role: 'user' | 'assistant';
     content: string;
   }[];
 }
@@ -28,8 +29,11 @@ interface ClaudeRequestWithLearningDisabled extends ClaudeRequestBase {
 const DEFAULT_API_SETTINGS: ApiSettings = {
   apiService: 'anthropic',
   apiKey: '',
-  apiModel: 'claude-3-7-sonnet-20240307',
+  apiModel: 'claude-3-5-sonnet-20241022',
 };
+
+// プロキシサーバーのURL
+const PROXY_URL = 'https://figma-plugin-geuadu9e8-yoriss67s-projects.vercel.app/api/proxy';
 
 // 現在のAPI設定
 let currentApiSettings: ApiSettings = { ...DEFAULT_API_SETTINGS };
@@ -56,6 +60,97 @@ type NodeSchema = {
 };
 
 /**
+ * APIキーとプロキシサーバーの接続をテストする
+ */
+async function testApiConnection(): Promise<boolean> {
+  try {
+    console.log('Testing API connection...');
+
+    if (!currentApiSettings.apiKey) {
+      console.log('No API key configured');
+      figma.ui.postMessage({
+        type: 'error',
+        message: 'APIキーが設定されていません。設定タブでAPIキーを入力してください。',
+      });
+      return false;
+    }
+
+    // プロキシサーバーの状態確認
+    try {
+      const proxyResponse = await fetch(PROXY_URL, {
+        method: 'GET',
+      });
+
+      if (proxyResponse.ok) {
+        const proxyData = await proxyResponse.json();
+        console.log('Proxy server status:', proxyData);
+      } else {
+        console.error('Proxy server error:', proxyResponse.status);
+      }
+    } catch (proxyError) {
+      console.error('Failed to connect to proxy server:', proxyError);
+    }
+
+    // 簡単なAPIテストリクエスト
+    const testRequest = {
+      model: currentApiSettings.apiModel,
+      max_tokens: 100,
+      messages: [
+        {
+          role: 'user',
+          content: 'Hello, please respond with "API connection successful"',
+        },
+      ],
+    };
+
+    console.log('Sending test request to API...');
+    const response = await fetch(PROXY_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(testRequest),
+    });
+
+    console.log('Test API response status:', response.status);
+
+    if (response.ok) {
+      const data = await response.json();
+      console.log('API test successful:', data);
+
+      figma.ui.postMessage({
+        type: 'success',
+        message: 'API接続テストが成功しました！',
+      });
+      return true;
+    } else {
+      const errorData = await response.json();
+      console.error('API test failed:', errorData);
+
+      let errorMessage = 'API接続テストが失敗しました。';
+      if (response.status === 401) {
+        errorMessage = 'APIキーが無効です。正しいAPIキーを設定してください。';
+      } else if (response.status === 429) {
+        errorMessage = 'API利用制限に達しています。しばらく待ってから再試行してください。';
+      }
+
+      figma.ui.postMessage({
+        type: 'error',
+        message: errorMessage,
+      });
+      return false;
+    }
+  } catch (error) {
+    console.error('API connection test error:', error);
+    figma.ui.postMessage({
+      type: 'error',
+      message: 'API接続テスト中にエラーが発生しました: ' + (error as Error).message,
+    });
+    return false;
+  }
+}
+
+/**
  * APIキー設定をclientStorageから読み込む
  */
 async function loadApiSettings(): Promise<ApiSettings> {
@@ -63,7 +158,7 @@ async function loadApiSettings(): Promise<ApiSettings> {
     // clientStorageから設定を読み込む
     const keys = await figma.clientStorage.keysAsync();
 
-    if (keys.includes('apiSettings')) {
+    if (keys.indexOf('apiSettings') !== -1) {
       const settings = (await figma.clientStorage.getAsync('apiSettings')) as ApiSettings;
       return { ...DEFAULT_API_SETTINGS, ...settings };
     }
@@ -102,7 +197,7 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
     }
 
     // デバッグ用: プロキシURLとAPIキーの最初の数文字を表示
-    console.log('Using proxy URL:', 'https://figma-claude-design-plugin.vercel.app/api/proxy');
+    console.log('Using proxy URL:', PROXY_URL);
     console.log(
       'API Key provided:',
       currentApiSettings.apiKey
@@ -115,7 +210,7 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
     // CORS問題が解決するまでの暫定対応
     let mockResponse;
 
-    if (prompt.includes('To Do') || prompt.includes('ToDo') || prompt.includes('タスク')) {
+    if (prompt.indexOf('To Do') !== -1 || prompt.indexOf('ToDo') !== -1 || prompt.indexOf('タスク') !== -1) {
       // ToDo アプリのモックデータ
       console.log('Using ToDo app mock data');
       mockResponse = {
@@ -262,7 +357,257 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
           },
         ],
       };
-    } else if (prompt.includes('学習') || prompt.includes('ホーム')) {
+    } else if (
+      prompt.indexOf('EC') !== -1 ||
+      prompt.indexOf('商品') !== -1 ||
+      prompt.indexOf('ショッピング') !== -1 ||
+      prompt.indexOf('購入') !== -1 ||
+      prompt.indexOf('カート') !== -1
+    ) {
+      // ECサイトのモックデータ
+      console.log('Using EC site mock data');
+      mockResponse = {
+        nodes: [
+          {
+            type: 'FRAME',
+            name: 'ECサイト商品一覧',
+            width: 375,
+            height: 812,
+            fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+            children: [
+              {
+                type: 'RECTANGLE',
+                name: 'ヘッダー',
+                x: 0,
+                y: 0,
+                width: 375,
+                height: 80,
+                fills: [{ type: 'SOLID', color: { r: 0.2, g: 0.4, b: 0.8 } }],
+              },
+              {
+                type: 'TEXT',
+                name: 'サイトタイトル',
+                x: 24,
+                y: 30,
+                characters: 'SHOP',
+                fontSize: 24,
+              },
+              {
+                type: 'RECTANGLE',
+                name: '検索バー',
+                x: 24,
+                y: 100,
+                width: 327,
+                height: 40,
+                cornerRadius: 20,
+                fills: [{ type: 'SOLID', color: { r: 0.95, g: 0.95, b: 0.95 } }],
+              },
+              {
+                type: 'TEXT',
+                name: '検索プレースホルダー',
+                x: 44,
+                y: 112,
+                characters: '商品を検索...',
+                fontSize: 16,
+              },
+              {
+                type: 'TEXT',
+                name: 'カテゴリータイトル',
+                x: 24,
+                y: 170,
+                characters: '人気商品',
+                fontSize: 20,
+              },
+              {
+                type: 'RECTANGLE',
+                name: '商品カード1',
+                x: 24,
+                y: 200,
+                width: 160,
+                height: 200,
+                cornerRadius: 12,
+                fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+              },
+              {
+                type: 'RECTANGLE',
+                name: '商品画像1',
+                x: 34,
+                y: 210,
+                width: 140,
+                height: 120,
+                cornerRadius: 8,
+                fills: [{ type: 'SOLID', color: { r: 0.9, g: 0.9, b: 0.9 } }],
+              },
+              {
+                type: 'TEXT',
+                name: '商品名1',
+                x: 34,
+                y: 340,
+                characters: 'スマートフォン',
+                fontSize: 14,
+              },
+              {
+                type: 'TEXT',
+                name: '価格1',
+                x: 34,
+                y: 360,
+                characters: '¥89,800',
+                fontSize: 16,
+              },
+              {
+                type: 'RECTANGLE',
+                name: '商品カード2',
+                x: 191,
+                y: 200,
+                width: 160,
+                height: 200,
+                cornerRadius: 12,
+                fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+              },
+              {
+                type: 'RECTANGLE',
+                name: '商品画像2',
+                x: 201,
+                y: 210,
+                width: 140,
+                height: 120,
+                cornerRadius: 8,
+                fills: [{ type: 'SOLID', color: { r: 0.9, g: 0.9, b: 0.9 } }],
+              },
+              {
+                type: 'TEXT',
+                name: '商品名2',
+                x: 201,
+                y: 340,
+                characters: 'ワイヤレスイヤホン',
+                fontSize: 14,
+              },
+              {
+                type: 'TEXT',
+                name: '価格2',
+                x: 201,
+                y: 360,
+                characters: '¥12,800',
+                fontSize: 16,
+              },
+              {
+                type: 'RECTANGLE',
+                name: '商品カード3',
+                x: 24,
+                y: 420,
+                width: 160,
+                height: 200,
+                cornerRadius: 12,
+                fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+              },
+              {
+                type: 'RECTANGLE',
+                name: '商品画像3',
+                x: 34,
+                y: 430,
+                width: 140,
+                height: 120,
+                cornerRadius: 8,
+                fills: [{ type: 'SOLID', color: { r: 0.9, g: 0.9, b: 0.9 } }],
+              },
+              {
+                type: 'TEXT',
+                name: '商品名3',
+                x: 34,
+                y: 560,
+                characters: 'ノートパソコン',
+                fontSize: 14,
+              },
+              {
+                type: 'TEXT',
+                name: '価格3',
+                x: 34,
+                y: 580,
+                characters: '¥128,000',
+                fontSize: 16,
+              },
+              {
+                type: 'RECTANGLE',
+                name: '商品カード4',
+                x: 191,
+                y: 420,
+                width: 160,
+                height: 200,
+                cornerRadius: 12,
+                fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+              },
+              {
+                type: 'RECTANGLE',
+                name: '商品画像4',
+                x: 201,
+                y: 430,
+                width: 140,
+                height: 120,
+                cornerRadius: 8,
+                fills: [{ type: 'SOLID', color: { r: 0.9, g: 0.9, b: 0.9 } }],
+              },
+              {
+                type: 'TEXT',
+                name: '商品名4',
+                x: 201,
+                y: 560,
+                characters: 'タブレット',
+                fontSize: 14,
+              },
+              {
+                type: 'TEXT',
+                name: '価格4',
+                x: 201,
+                y: 580,
+                characters: '¥45,800',
+                fontSize: 16,
+              },
+              {
+                type: 'RECTANGLE',
+                name: 'ボトムナビ',
+                x: 0,
+                y: 732,
+                width: 375,
+                height: 80,
+                fills: [{ type: 'SOLID', color: { r: 0.98, g: 0.98, b: 0.98 } }],
+              },
+              {
+                type: 'TEXT',
+                name: 'ホーム',
+                x: 50,
+                y: 760,
+                characters: 'ホーム',
+                fontSize: 12,
+              },
+              {
+                type: 'TEXT',
+                name: 'カテゴリ',
+                x: 130,
+                y: 760,
+                characters: 'カテゴリ',
+                fontSize: 12,
+              },
+              {
+                type: 'TEXT',
+                name: 'カート',
+                x: 220,
+                y: 760,
+                characters: 'カート',
+                fontSize: 12,
+              },
+              {
+                type: 'TEXT',
+                name: 'マイページ',
+                x: 290,
+                y: 760,
+                characters: 'マイページ',
+                fontSize: 12,
+              },
+            ],
+          },
+        ],
+      };
+    } else if (prompt.indexOf('学習') !== -1 || prompt.indexOf('ホーム') !== -1) {
       // 学習アプリのモックデータ
       console.log('Using learning app mock data');
       mockResponse = {
@@ -365,91 +710,442 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
           },
         ],
       };
-    } else {
-      // デフォルトのモックデータ
-      console.log('Using default mock data based on prompt');
+    } else if (prompt.indexOf('音楽') !== -1 || prompt.indexOf('music') !== -1 || prompt.indexOf('プレイヤー') !== -1) {
+      // 音楽プレイヤーアプリの高品質モックデータ
+      console.log('Using high-quality music player mock data');
       mockResponse = {
         nodes: [
           {
             type: 'FRAME',
-            name: 'デザインコンテナ',
-            width: 400,
-            height: 300,
-            fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+            name: '音楽プレイヤーアプリ',
+            width: 375,
+            height: 812,
+            fills: [{ type: 'SOLID', color: { r: 0.05, g: 0.05, b: 0.1 } }],
             children: [
+              // ステータスバー
+              {
+                type: 'RECTANGLE',
+                name: 'ステータスバー',
+                x: 0,
+                y: 0,
+                width: 375,
+                height: 44,
+                fills: [{ type: 'SOLID', color: { r: 0.05, g: 0.05, b: 0.1 } }],
+              },
+              // ヘッダー
               {
                 type: 'TEXT',
-                name: 'タイトル',
-                x: 20,
-                y: 20,
-                characters: prompt.substring(0, 20) + '...',
-                fontSize: 24,
+                name: 'ヘッダータイトル',
+                x: 24,
+                y: 70,
+                characters: 'Music',
+                fontSize: 32,
+              },
+              {
+                type: 'TEXT',
+                name: 'サブタイトル',
+                x: 24,
+                y: 110,
+                characters: 'Now Playing',
+                fontSize: 16,
+              },
+              // アルバムアートワーク
+              {
+                type: 'RECTANGLE',
+                name: 'アルバムアートワーク',
+                x: 50,
+                y: 160,
+                width: 275,
+                height: 275,
+                cornerRadius: 16,
+                fills: [{ type: 'SOLID', color: { r: 0.2, g: 0.3, b: 0.8 } }],
               },
               {
                 type: 'RECTANGLE',
-                name: 'コンテンツエリア',
-                x: 20,
-                y: 70,
-                width: 360,
-                height: 200,
-                cornerRadius: 8,
-                fills: [{ type: 'SOLID', color: { r: 0.96, g: 0.96, b: 0.96 } }],
+                name: 'アートワーク内側',
+                x: 75,
+                y: 185,
+                width: 225,
+                height: 225,
+                cornerRadius: 12,
+                fills: [{ type: 'SOLID', color: { r: 0.3, g: 0.4, b: 0.9 } }],
+              },
+              // 楽曲情報
+              {
+                type: 'TEXT',
+                name: '楽曲タイトル',
+                x: 24,
+                y: 470,
+                characters: 'Beautiful Song',
+                fontSize: 24,
               },
               {
                 type: 'TEXT',
-                name: '説明テキスト',
-                x: 40,
-                y: 100,
-                characters: 'プロンプト内容に基づいた\nデザインをここに表示',
-                fontSize: 16,
+                name: 'アーティスト名',
+                x: 24,
+                y: 500,
+                characters: 'Amazing Artist',
+                fontSize: 18,
+              },
+              // プログレスバー
+              {
+                type: 'RECTANGLE',
+                name: 'プログレスバー背景',
+                x: 24,
+                y: 540,
+                width: 327,
+                height: 4,
+                cornerRadius: 2,
+                fills: [{ type: 'SOLID', color: { r: 0.3, g: 0.3, b: 0.3 } }],
+              },
+              {
+                type: 'RECTANGLE',
+                name: 'プログレス',
+                x: 24,
+                y: 540,
+                width: 120,
+                height: 4,
+                cornerRadius: 2,
+                fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+              },
+              // 時間表示
+              {
+                type: 'TEXT',
+                name: '現在時間',
+                x: 24,
+                y: 560,
+                characters: '1:23',
+                fontSize: 14,
+              },
+              {
+                type: 'TEXT',
+                name: '総時間',
+                x: 315,
+                y: 560,
+                characters: '3:45',
+                fontSize: 14,
+              },
+              // コントロールボタン
+              {
+                type: 'RECTANGLE',
+                name: '前の曲ボタン',
+                x: 80,
+                y: 600,
+                width: 48,
+                height: 48,
+                cornerRadius: 24,
+                fills: [{ type: 'SOLID', color: { r: 0.2, g: 0.2, b: 0.2 } }],
+              },
+              {
+                type: 'TEXT',
+                name: '前の曲アイコン',
+                x: 96,
+                y: 615,
+                characters: '⏮',
+                fontSize: 20,
+              },
+              {
+                type: 'RECTANGLE',
+                name: '再生ボタン',
+                x: 163,
+                y: 590,
+                width: 68,
+                height: 68,
+                cornerRadius: 34,
+                fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+              },
+              {
+                type: 'TEXT',
+                name: '再生アイコン',
+                x: 185,
+                y: 610,
+                characters: '▶',
+                fontSize: 28,
+              },
+              {
+                type: 'RECTANGLE',
+                name: '次の曲ボタン',
+                x: 267,
+                y: 600,
+                width: 48,
+                height: 48,
+                cornerRadius: 24,
+                fills: [{ type: 'SOLID', color: { r: 0.2, g: 0.2, b: 0.2 } }],
+              },
+              {
+                type: 'TEXT',
+                name: '次の曲アイコン',
+                x: 283,
+                y: 615,
+                characters: '⏭',
+                fontSize: 20,
+              },
+              // ボトムナビゲーション
+              {
+                type: 'RECTANGLE',
+                name: 'ボトムナビ背景',
+                x: 0,
+                y: 732,
+                width: 375,
+                height: 80,
+                fills: [{ type: 'SOLID', color: { r: 0.1, g: 0.1, b: 0.15 } }],
+              },
+              {
+                type: 'TEXT',
+                name: 'ホーム',
+                x: 50,
+                y: 760,
+                characters: 'Home',
+                fontSize: 12,
+              },
+              {
+                type: 'TEXT',
+                name: '検索',
+                x: 130,
+                y: 760,
+                characters: 'Search',
+                fontSize: 12,
+              },
+              {
+                type: 'TEXT',
+                name: 'ライブラリ',
+                x: 200,
+                y: 760,
+                characters: 'Library',
+                fontSize: 12,
+              },
+              {
+                type: 'TEXT',
+                name: 'プロフィール',
+                x: 280,
+                y: 760,
+                characters: 'Profile',
+                fontSize: 12,
               },
             ],
           },
         ],
       };
+    } else {
+      // デフォルトのモックデータ（プロンプト内容を反映）
+      console.log('Using default mock data based on prompt:', prompt);
+
+      // プロンプトから主要なキーワードを抽出
+      const promptKeywords = prompt.substring(0, 30);
+      const isApp = prompt.indexOf('アプリ') !== -1 || prompt.indexOf('app') !== -1;
+      const isLogin = prompt.indexOf('ログイン') !== -1 || prompt.indexOf('login') !== -1;
+      const isMusic = prompt.indexOf('音楽') !== -1 || prompt.indexOf('music') !== -1;
+      const isWeather = prompt.indexOf('天気') !== -1 || prompt.indexOf('weather') !== -1;
+
+      let frameHeight = 300;
+      let frameWidth = 400;
+      const mainTitle = promptKeywords;
+
+      // モバイルアプリの場合はサイズを調整
+      if (isApp) {
+        frameHeight = 812;
+        frameWidth = 375;
+      }
+
+      mockResponse = {
+        nodes: [
+          {
+            type: 'FRAME',
+            name: `${promptKeywords} - デザイン`,
+            width: frameWidth,
+            height: frameHeight,
+            fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+            children: [
+              {
+                type: 'RECTANGLE',
+                name: 'ヘッダー',
+                x: 0,
+                y: 0,
+                width: frameWidth,
+                height: isApp ? 100 : 60,
+                fills: [{ type: 'SOLID', color: { r: 0.2, g: 0.5, b: 0.8 } }],
+              },
+              {
+                type: 'TEXT',
+                name: 'タイトル',
+                x: 20,
+                y: isApp ? 50 : 20,
+                characters: mainTitle,
+                fontSize: isApp ? 24 : 20,
+              },
+              {
+                type: 'RECTANGLE',
+                name: 'メインコンテンツエリア',
+                x: 20,
+                y: isApp ? 120 : 80,
+                width: frameWidth - 40,
+                height: isApp ? 500 : 150,
+                cornerRadius: 12,
+                fills: [{ type: 'SOLID', color: { r: 0.96, g: 0.96, b: 0.96 } }],
+              },
+              {
+                type: 'TEXT',
+                name: 'コンテンツタイトル',
+                x: 40,
+                y: isApp ? 150 : 100,
+                characters: isLogin
+                  ? 'ログイン'
+                  : isMusic
+                  ? '音楽プレイヤー'
+                  : isWeather
+                  ? '天気予報'
+                  : 'メインコンテンツ',
+                fontSize: 18,
+              },
+              {
+                type: 'TEXT',
+                name: '説明テキスト',
+                x: 40,
+                y: isApp ? 180 : 130,
+                characters: `${prompt.substring(0, 50)}...に基づいたデザイン`,
+                fontSize: 14,
+              },
+            ],
+          },
+        ],
+      };
+
+      // ログイン画面の場合は追加要素
+      if (isLogin) {
+        mockResponse.nodes[0].children.push(
+          {
+            type: 'RECTANGLE',
+            name: 'ユーザー名入力',
+            x: 40,
+            y: isApp ? 250 : 160,
+            width: frameWidth - 80,
+            height: 40,
+            cornerRadius: 8,
+            fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+          },
+          {
+            type: 'TEXT',
+            name: 'ユーザー名ラベル',
+            x: 50,
+            y: isApp ? 262 : 172,
+            characters: 'ユーザー名',
+            fontSize: 14,
+          },
+          {
+            type: 'RECTANGLE',
+            name: 'パスワード入力',
+            x: 40,
+            y: isApp ? 310 : 210,
+            width: frameWidth - 80,
+            height: 40,
+            cornerRadius: 8,
+            fills: [{ type: 'SOLID', color: { r: 1, g: 1, b: 1 } }],
+          },
+          {
+            type: 'TEXT',
+            name: 'パスワードラベル',
+            x: 50,
+            y: isApp ? 322 : 222,
+            characters: 'パスワード',
+            fontSize: 14,
+          },
+          {
+            type: 'RECTANGLE',
+            name: 'ログインボタン',
+            x: 40,
+            y: isApp ? 370 : 260,
+            width: frameWidth - 80,
+            height: 50,
+            cornerRadius: 25,
+            fills: [{ type: 'SOLID', color: { r: 0.2, g: 0.5, b: 0.8 } }],
+          },
+          {
+            type: 'TEXT',
+            name: 'ログインボタンテキスト',
+            x: frameWidth / 2 - 30,
+            y: isApp ? 385 : 275,
+            characters: 'ログイン',
+            fontSize: 16,
+          },
+        );
+      }
     }
 
     // APIリクエストを試行
     try {
-      const systemPrompt = `あなたはFigmaのデザインノードを生成するAIアシスタントです。
-ユーザーの入力に基づいて、Figmaで表示できるデザイン要素のJSONスキーマを返してください。
-JSONの形式は以下の通りです:
+      // システムプロンプト
+      const systemPrompt = `あなたは世界最高レベルのUI/UXデザイナーです。Figmaで実装可能な高品質なデザインを生成してください。
 
+## 重要な指示:
+1. 必ずJSONフォーマットで回答してください
+2. 実際のプロダクトレベルの詳細なデザインを作成してください
+3. 色彩理論、タイポグラフィ、レイアウト原則を適用してください
+4. モダンなデザイントレンドを反映してください
+
+## JSONスキーマ:
 {
   "nodes": [
     {
       "type": "FRAME",
-      "name": "コンテナ名",
-      "width": 数値,
-      "height": 数値,
-      "fills": [{ "type": "SOLID", "color": { "r": 0～1, "g": 0～1, "b": 0～1 } }],
+      "name": "メインコンテナ",
+      "width": 375,
+      "height": 812,
+      "fills": [{ "type": "SOLID", "color": { "r": 0.98, "g": 0.98, "b": 0.98 } }],
       "children": [
-        // 子ノード（テキスト、長方形など）
+        {
+          "type": "RECTANGLE",
+          "name": "要素名",
+          "x": 0,
+          "y": 0,
+          "width": 375,
+          "height": 100,
+          "cornerRadius": 12,
+          "fills": [{ "type": "SOLID", "color": { "r": 0.2, "g": 0.4, "b": 0.8 } }]
+        },
+        {
+          "type": "TEXT",
+          "name": "テキスト要素",
+          "x": 24,
+          "y": 40,
+          "characters": "表示テキスト",
+          "fontSize": 24
+        }
       ]
     }
   ]
 }
 
-サポートするノードタイプ: "FRAME", "RECTANGLE", "TEXT"
-各ノードタイプには特有のプロパティがあります:
-- FRAME: 名前、幅、高さ、塗りつぶし、子ノード
-- RECTANGLE: 名前、x、y、幅、高さ、塗りつぶし、角丸半径
-- TEXT: 名前、x、y、テキスト内容、フォントサイズ
+## デザイン要件:
+- モバイルファーストアプローチ (375x812px)
+- 適切な余白とパディング (8px, 16px, 24px, 32px)
+- 読みやすいタイポグラフィ (14px-32px)
+- アクセシブルな色彩 (コントラスト比4.5:1以上)
+- モダンな角丸 (8px-16px)
+- 階層的な情報設計
 
-返答はJSONオブジェクトのみにしてください。JSONの中で最低1つのFRAMEノードを含めてください。`;
+## サポートするノードタイプ:
+- FRAME: コンテナ要素
+- RECTANGLE: 背景、カード、ボタン等
+- TEXT: テキスト要素
 
-      // プロキシサーバーのURL
-      const proxyUrl = 'https://figma-claude-design-plugin.vercel.app/api/proxy';
+## 必須プロパティ:
+- type: ノードタイプ
+- name: 要素名
+- x, y: 位置座標
+- width, height: サイズ
+- fills: 色情報
+- cornerRadius: 角丸 (RECTANGLE)
+- characters: テキスト内容 (TEXT)
+- fontSize: フォントサイズ (TEXT)
+
+ユーザーの要求に基づいて、プロフェッショナルレベルの詳細なデザインを作成してください。`;
 
       // リクエストデータの作成
       const baseRequest: ClaudeRequestBase = {
         model: currentApiSettings.apiModel,
         max_tokens: 4000,
+        system: systemPrompt,
         messages: [
-          {
-            role: 'system',
-            content: systemPrompt,
-          },
           {
             role: 'user',
             content: prompt,
@@ -474,7 +1170,8 @@ JSONの形式は以下の通りです:
 
       // 通常のフェッチを試行
       try {
-        const response = await fetch(proxyUrl, {
+        console.log('Sending request to proxy server...');
+        const response = await fetch(PROXY_URL, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -483,8 +1180,24 @@ JSONの形式は以下の通りです:
           body: JSON.stringify(requestData),
         });
 
+        console.log('Response status:', response.status);
+        console.log('Response ok:', response.ok);
+        console.log('Response type:', response.type);
+
         if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
+          const errorText = await response.text();
+          console.error(`API error: ${response.status} - ${errorText}`);
+
+          // 特定のエラーに対する詳細なログ
+          if (response.status === 401) {
+            console.error('Authentication failed: Please check your API key');
+          } else if (response.status === 429) {
+            console.error('Rate limit exceeded: Please wait before making another request');
+          } else if (response.status >= 500) {
+            console.error('Server error: The API service is temporarily unavailable');
+          }
+
+          throw new Error(`API error: ${response.status} - ${errorText}`);
         }
 
         // レスポンスをJSONとして解析
@@ -495,44 +1208,56 @@ JSONの形式は以下の通りです:
         if (data.content && data.content[0] && data.content[0].text) {
           try {
             // レスポンステキストからJSONを抽出して解析
+            const responseText = data.content[0].text;
+            console.log('Raw API response text:', responseText);
+
+            // より柔軟なJSON抽出
             const jsonMatch =
-              data.content[0].text.match(/```json\n([\s\S]*?)\n```/) ||
-              data.content[0].text.match(/```\n([\s\S]*?)\n```/) ||
-              data.content[0].text.match(/{[\s\S]*?}/);
+              responseText.match(/```json\n([\s\S]*?)\n```/) ||
+              responseText.match(/```\n([\s\S]*?)\n```/) ||
+              responseText.match(/{[\s\S]*?}/);
 
             if (jsonMatch) {
               const jsonText = jsonMatch[1] || jsonMatch[0];
+              console.log('Extracted JSON text:', jsonText);
+
               const parsedResponse = JSON.parse(jsonText);
-              console.log('Successfully parsed JSON response');
-              return parsedResponse;
+              console.log('Successfully parsed JSON response from API');
+
+              // 生成されたデザインの品質チェック
+              if (parsedResponse.nodes && parsedResponse.nodes.length > 0) {
+                console.log('High-quality AI-generated design received');
+                return parsedResponse;
+              } else {
+                console.log('Invalid response structure, using fallback');
+              }
+            } else {
+              console.log('No valid JSON found in API response, using fallback');
             }
           } catch (jsonError) {
             console.error('Failed to parse JSON from response:', jsonError);
+            console.log('Raw response text:', data.content[0].text);
           }
+        } else {
+          console.log('Unexpected API response format:', data);
+        }
+      } catch (err) {
+        console.error('Fetch request failed:', err);
+
+        // ネットワークエラーの詳細を表示
+        if (err instanceof TypeError && err.message.indexOf('Failed to fetch') !== -1) {
+          console.error('Network error: This might be a CORS issue or network connectivity problem');
+          console.error('Possible solutions:');
+          console.error('1. Check your internet connection');
+          console.error('2. Verify the proxy server is running');
+          console.error('3. Check if the API key is valid');
         }
 
-        console.log('Could not extract valid JSON from API response, using mock data');
-      } catch (err) {
-        console.log('Standard fetch failed:', err);
-
-        // no-corsモードを試す（この方法はコンパイルエラーになるため、コードを無効化）
-        console.log('Note: Cannot use no-cors mode due to TypeScript constraints');
-        /* 以下のコードはコンパイルエラーになるため、コメントアウト
-          try {
-            await fetch(proxyUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': currentApiSettings.apiKey,
-              },
-              body: JSON.stringify(requestData),
-              mode: 'no-cors',
-            });
-            console.log('no-cors request sent (but cannot read response)');
-          } catch (noCorsErr) {
-            console.error('no-cors request also failed:', noCorsErr);
-          }
-          */
+        // エラーの詳細をUIに通知
+        figma.ui.postMessage({
+          type: 'warning',
+          message: 'API接続に失敗しました。高品質なモックデータを使用します。',
+        });
       }
     } catch (fetchError) {
       console.error('API request error:', fetchError);
@@ -769,6 +1494,11 @@ figma.ui.onmessage = async (msg) => {
     case 'generate-design':
       // AIを使ってデザインを生成
       generateDesignFromPrompt(msg.prompt, msg.disableLearning);
+      break;
+
+    case 'test-api-connection':
+      // API接続テスト
+      await testApiConnection();
       break;
 
     case 'get-api-settings':

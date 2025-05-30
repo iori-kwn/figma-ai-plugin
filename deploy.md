@@ -71,3 +71,5 @@ npm run build
 - **CORS 問題**: `vercel.json`と`api/proxy.js`の CORS 設定が正しいか確認してください
 - **API エラー**: Anthropic API キーが有効か確認してください
 - **プラグインエラー**: Figma コンソールでエラーメッセージを確認してください（Figma アプリで開発者ツールを開いて Console タブを確認）
+
+

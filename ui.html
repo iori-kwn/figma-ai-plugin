@@ -184,17 +184,25 @@
           <div class="input-group">
             <label for="api-model">モデル:</label>
             <select id="api-model">
+              <option value="claude-4-opus-20250301">
+                Claude 4 Opus (最新)
+              </option>
+              <option value="claude-4-sonnet-20250301">Claude 4 Sonnet</option>
+              <option value="claude-4-haiku-20250301">Claude 4 Haiku</option>
               <option value="claude-3-5-sonnet-20240620">
                 Claude 3.5 Sonnet
-              </option>
-              <option value="claude-3-7-sonnet-20240307">
-                Claude 3.7 Sonnet
               </option>
               <option value="claude-3-opus-20240229">Claude 3 Opus</option>
               <option value="claude-3-sonnet-20240229">Claude 3 Sonnet</option>
             </select>
           </div>
           <button id="save-key-btn">設定を保存</button>
+          <button
+            id="test-connection-btn"
+            style="margin-top: 8px; background-color: #0066cc"
+          >
+            API接続テスト
+          </button>
         </div>
       </div>
     </div>
@@ -256,6 +264,31 @@
               apiService,
               apiKey,
               apiModel,
+            },
+          },
+          '*',
+        );
+      };
+
+      // API接続テストボタンのクリックイベント
+      document.getElementById('test-connection-btn').onclick = () => {
+        const apiKey = document.getElementById('api-key').value;
+
+        // 入力チェック
+        if (!apiKey.trim()) {
+          document.getElementById('status').textContent =
+            '⚠️ APIキーを入力してからテストしてください';
+          return;
+        }
+
+        // ステータス表示
+        document.getElementById('status').textContent = 'API接続をテスト中...';
+
+        // プラグインにメッセージ送信
+        parent.postMessage(
+          {
+            pluginMessage: {
+              type: 'test-api-connection',
             },
           },
           '*',
