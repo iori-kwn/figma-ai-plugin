@@ -1,0 +1,34 @@
+name: Claude API Proxy
+
+on:
+  repository_dispatch:
+    types: [claude-api-request]
+
+jobs:
+  claude-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10 # Claude APIコール用に10分設定（必要に応じて調整可能）
+
+    steps:
+      - name: Handle Claude API Request
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          curl -X POST https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d '${{ github.event.client_payload.request_data }}' \
+            -o response.json
+
+          # レスポンスを取得してイベントとして送信
+          echo "CLAUDE_RESPONSE=$(cat response.json)" >> $GITHUB_OUTPUT
+
+      - name: Return Response
+        uses: actions/github-script@v6
+        with:
+          script: |
+            // レスポンスをリポジトリのissueやdiscussionsで返す
+            // または、専用のAPIエンドポイントに送信
+            const response = process.env.CLAUDE_RESPONSE;
+            console.log('Claude API Response:', response);

@@ -29,11 +29,11 @@ interface ClaudeRequestWithLearningDisabled extends ClaudeRequestBase {
 const DEFAULT_API_SETTINGS: ApiSettings = {
   apiService: 'anthropic',
   apiKey: '',
-  apiModel: 'claude-3-5-sonnet-20241022',
+  apiModel: 'claude-3-5-haiku-20241022',
 };
 
 // プロキシサーバーのURL
-const PROXY_URL = 'https://figma-plugin-geuadu9e8-yoriss67s-projects.vercel.app/api/proxy';
+const PROXY_URL = 'https://figma-plugin-nz8s73k04-yoriss67s-projects.vercel.app/api/proxy';
 
 // 現在のAPI設定
 let currentApiSettings: ApiSettings = { ...DEFAULT_API_SETTINGS };
@@ -1073,41 +1073,36 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
 
     // APIリクエストを試行
     try {
-      // システムプロンプト
-      const systemPrompt = `あなたは世界最高レベルのUI/UXデザイナーです。Figmaで実装可能な高品質なデザインを生成してください。
+      // システムプロンプト（10秒制限に最適化）
+      const systemPrompt = `Create a Figma UI design. Output ONLY valid JSON, no text, no explanations.
 
-## 重要な指示:
-1. 必ずJSONフォーマットで回答してください
-2. 実際のプロダクトレベルの詳細なデザインを作成してください
-3. 色彩理論、タイポグラフィ、レイアウト原則を適用してください
-4. モダンなデザイントレンドを反映してください
-
-## JSONスキーマ:
+Required format:
 {
   "nodes": [
     {
       "type": "FRAME",
-      "name": "メインコンテナ",
+      "name": "Main Container",
       "width": 375,
       "height": 812,
-      "fills": [{ "type": "SOLID", "color": { "r": 0.98, "g": 0.98, "b": 0.98 } }],
+      "x": 0,
+      "y": 0,
+      "fills": [{"type": "SOLID", "color": {"r": 1, "g": 1, "b": 1}}],
       "children": [
         {
           "type": "RECTANGLE",
-          "name": "要素名",
+          "name": "Header",
           "x": 0,
           "y": 0,
           "width": 375,
-          "height": 100,
-          "cornerRadius": 12,
-          "fills": [{ "type": "SOLID", "color": { "r": 0.2, "g": 0.4, "b": 0.8 } }]
+          "height": 88,
+          "fills": [{"type": "SOLID", "color": {"r": 0.1, "g": 0.4, "b": 0.9}}]
         },
         {
           "type": "TEXT",
-          "name": "テキスト要素",
+          "name": "Title",
           "x": 24,
-          "y": 40,
-          "characters": "表示テキスト",
+          "y": 50,
+          "characters": "App Title",
           "fontSize": 24
         }
       ]
@@ -1115,35 +1110,12 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
   ]
 }
 
-## デザイン要件:
-- モバイルファーストアプローチ (375x812px)
-- 適切な余白とパディング (8px, 16px, 24px, 32px)
-- 読みやすいタイポグラフィ (14px-32px)
-- アクセシブルな色彩 (コントラスト比4.5:1以上)
-- モダンな角丸 (8px-16px)
-- 階層的な情報設計
-
-## サポートするノードタイプ:
-- FRAME: コンテナ要素
-- RECTANGLE: 背景、カード、ボタン等
-- TEXT: テキスト要素
-
-## 必須プロパティ:
-- type: ノードタイプ
-- name: 要素名
-- x, y: 位置座標
-- width, height: サイズ
-- fills: 色情報
-- cornerRadius: 角丸 (RECTANGLE)
-- characters: テキスト内容 (TEXT)
-- fontSize: フォントサイズ (TEXT)
-
-ユーザーの要求に基づいて、プロフェッショナルレベルの詳細なデザインを作成してください。`;
+Output ONLY JSON. No markdown, no explanations.`;
 
       // リクエストデータの作成
       const baseRequest: ClaudeRequestBase = {
         model: currentApiSettings.apiModel,
-        max_tokens: 4000,
+        max_tokens: 1000,
         system: systemPrompt,
         messages: [
           {
@@ -1158,7 +1130,6 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
       if (disableLearning) {
         requestData = {
           ...baseRequest,
-          system: 'Figma plugin user input',
           claude_api_params: {
             disable_model_learning: true,
           },
@@ -1171,6 +1142,15 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
       // 通常のフェッチを試行
       try {
         console.log('Sending request to proxy server...');
+
+        // Add client-side timeout to complement server-side timeout
+        const controller = new AbortController();
+        const clientTimeoutId = setTimeout(() => {
+          controller.abort();
+        }, 55000); // 55 seconds - slightly less than server timeout
+
+        const startTime = Date.now();
+
         const response = await fetch(PROXY_URL, {
           method: 'POST',
           headers: {
@@ -1178,23 +1158,47 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
             'x-api-key': currentApiSettings.apiKey,
           },
           body: JSON.stringify(requestData),
+          signal: controller.signal,
         });
+
+        clearTimeout(clientTimeoutId);
+        const requestDuration = Date.now() - startTime;
 
         console.log('Response status:', response.status);
         console.log('Response ok:', response.ok);
-        console.log('Response type:', response.type);
+        console.log('Request duration:', requestDuration, 'ms');
 
         if (!response.ok) {
           const errorText = await response.text();
           console.error(`API error: ${response.status} - ${errorText}`);
 
-          // 特定のエラーに対する詳細なログ
-          if (response.status === 401) {
+          // Enhanced error handling for specific cases
+          if (response.status === 408) {
+            console.error('Request timeout: The AI API took too long to respond');
+            figma.ui.postMessage({
+              type: 'warning',
+              message: `リクエストがタイムアウトしました (${Math.round(
+                requestDuration / 1000,
+              )}秒)。モックデータを使用します。`,
+            });
+          } else if (response.status === 401) {
             console.error('Authentication failed: Please check your API key');
+            figma.ui.postMessage({
+              type: 'error',
+              message: 'APIキーが無効です。設定を確認してください。',
+            });
           } else if (response.status === 429) {
             console.error('Rate limit exceeded: Please wait before making another request');
+            figma.ui.postMessage({
+              type: 'warning',
+              message: 'レート制限に達しました。しばらく待ってから再試行してください。',
+            });
           } else if (response.status >= 500) {
             console.error('Server error: The API service is temporarily unavailable');
+            figma.ui.postMessage({
+              type: 'warning',
+              message: 'サーバーエラーが発生しました。モックデータを使用します。',
+            });
           }
 
           throw new Error(`API error: ${response.status} - ${errorText}`);
@@ -1204,6 +1208,15 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
         const data = await response.json();
         console.log('API response received:', data);
 
+        // Check for timing metadata
+        if (data._meta && data._meta.requestDuration) {
+          console.log('Server-side request duration:', data._meta.requestDuration, 'ms');
+          figma.ui.postMessage({
+            type: 'status',
+            message: `AI応答を受信しました (${Math.round(data._meta.requestDuration / 1000)}秒)`,
+          });
+        }
+
         // レスポンスから必要なデータを抽出
         if (data.content && data.content[0] && data.content[0].text) {
           try {
@@ -1211,28 +1224,115 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
             const responseText = data.content[0].text;
             console.log('Raw API response text:', responseText);
 
-            // より柔軟なJSON抽出
-            const jsonMatch =
-              responseText.match(/```json\n([\s\S]*?)\n```/) ||
-              responseText.match(/```\n([\s\S]*?)\n```/) ||
-              responseText.match(/{[\s\S]*?}/);
+            // より厳密なJSON抽出（複数パターンを試行）
+            let jsonText = null;
 
+            // パターン1: <json_response>タグ内のJSON（Claude 4推奨方式）
+            let jsonMatch = responseText.match(/<json_response>\s*([\s\S]*?)\s*<\/json_response>/);
             if (jsonMatch) {
-              const jsonText = jsonMatch[1] || jsonMatch[0];
-              console.log('Extracted JSON text:', jsonText);
+              jsonText = jsonMatch[1].trim();
+              console.log('Found JSON in xml_response tags');
+            }
 
-              const parsedResponse = JSON.parse(jsonText);
-              console.log('Successfully parsed JSON response from API');
+            // パターン2: ```json...``` ブロック
+            if (!jsonText) {
+              jsonMatch = responseText.match(/```json\s*\n([\s\S]*?)\n\s*```/);
+              if (jsonMatch) {
+                jsonText = jsonMatch[1];
+                console.log('Found JSON in code block');
+              }
+            }
 
-              // 生成されたデザインの品質チェック
-              if (parsedResponse.nodes && parsedResponse.nodes.length > 0) {
-                console.log('High-quality AI-generated design received');
-                return parsedResponse;
-              } else {
-                console.log('Invalid response structure, using fallback');
+            // パターン3: ``` ブロック（jsonキーワードなし）
+            if (!jsonText) {
+              jsonMatch = responseText.match(/```\s*\n([\s\S]*?)\n\s*```/);
+              if (jsonMatch && jsonMatch[1].trim().startsWith('{')) {
+                jsonText = jsonMatch[1];
+                console.log('Found JSON in generic code block');
+              }
+            }
+
+            // パターン4: 生のJSONオブジェクト
+            if (!jsonText) {
+              jsonMatch = responseText.match(/\{\s*"nodes"\s*:\s*\[[\s\S]*?\]\s*\}/);
+              if (jsonMatch) {
+                jsonText = jsonMatch[0];
+                console.log('Found raw JSON object');
+              }
+            }
+
+            // パターン5: 最も外側の{}を抽出
+            if (!jsonText) {
+              const firstBrace = responseText.indexOf('{');
+              const lastBrace = responseText.lastIndexOf('}');
+              if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                jsonText = responseText.substring(firstBrace, lastBrace + 1);
+                console.log('Extracted outermost JSON object');
+              }
+            }
+
+            if (jsonText) {
+              console.log('Extracted JSON text length:', jsonText.length);
+              console.log('JSON text starts with:', jsonText.substring(0, 100));
+              console.log('JSON text ends with:', jsonText.substring(jsonText.length - 100));
+
+              try {
+                const parsedResponse = JSON.parse(jsonText);
+                console.log('Successfully parsed JSON response from API');
+
+                // 生成されたデザインの品質チェック
+                if (parsedResponse.nodes && Array.isArray(parsedResponse.nodes) && parsedResponse.nodes.length > 0) {
+                  // さらに詳細な品質チェック
+                  const hasValidStructure = parsedResponse.nodes.every(
+                    (node: NodeSchema) =>
+                      node.type &&
+                      node.name &&
+                      (node.type === 'FRAME' || node.type === 'RECTANGLE' || node.type === 'TEXT'),
+                  );
+
+                  if (hasValidStructure) {
+                    console.log('High-quality AI-generated design received with valid structure');
+                    figma.ui.postMessage({
+                      type: 'success',
+                      message: `AI生成デザインを受信しました (${Math.round(requestDuration / 1000)}秒)`,
+                    });
+                    return parsedResponse;
+                  } else {
+                    console.log('Invalid node structure detected, using fallback');
+                  }
+                } else {
+                  console.log('Invalid response structure, using fallback');
+                }
+              } catch (jsonError) {
+                console.error('JSON Parse Error Details:');
+                console.error('- Error message:', (jsonError as Error).message);
+                console.error('- JSON text length:', jsonText.length);
+                console.error('- JSON preview (first 200 chars):', jsonText.substring(0, 200));
+                console.error(
+                  '- JSON preview (last 200 chars):',
+                  jsonText.substring(Math.max(0, jsonText.length - 200)),
+                );
+
+                // Count brackets to identify the issue
+                const openBrackets = (jsonText.match(/\[/g) || []).length;
+                const closeBrackets = (jsonText.match(/\]/g) || []).length;
+                const openBraces = (jsonText.match(/\{/g) || []).length;
+                const closeBraces = (jsonText.match(/\}/g) || []).length;
+
+                console.error('- Bracket analysis:');
+                console.error(`  - Open brackets [: ${openBrackets}, Close brackets ]: ${closeBrackets}`);
+                console.error(`  - Open braces {: ${openBraces}, Close braces }: ${closeBraces}`);
+
+                figma.ui.postMessage({
+                  type: 'warning',
+                  message: `JSON解析エラー: ${
+                    (jsonError as Error).message
+                  }。おそらくタイムアウトによりレスポンスが途中で切れています。Vercel Proプランをご検討ください。`,
+                });
               }
             } else {
               console.log('No valid JSON found in API response, using fallback');
+              console.log('Response text preview:', responseText.substring(0, 500));
             }
           } catch (jsonError) {
             console.error('Failed to parse JSON from response:', jsonError);
@@ -1244,20 +1344,31 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
       } catch (err) {
         console.error('Fetch request failed:', err);
 
-        // ネットワークエラーの詳細を表示
-        if (err instanceof TypeError && err.message.indexOf('Failed to fetch') !== -1) {
+        // Enhanced error handling for different types of errors
+        if ((err as Error).name === 'AbortError') {
+          console.error('Client-side timeout: Request was aborted after 55 seconds');
+          figma.ui.postMessage({
+            type: 'warning',
+            message:
+              'リクエストがタイムアウトしました。より短いプロンプトを試すか、Vercel Proプランのご利用をご検討ください。',
+          });
+        } else if (err instanceof TypeError && (err as TypeError).message.indexOf('Failed to fetch') !== -1) {
           console.error('Network error: This might be a CORS issue or network connectivity problem');
           console.error('Possible solutions:');
           console.error('1. Check your internet connection');
           console.error('2. Verify the proxy server is running');
           console.error('3. Check if the API key is valid');
-        }
 
-        // エラーの詳細をUIに通知
-        figma.ui.postMessage({
-          type: 'warning',
-          message: 'API接続に失敗しました。高品質なモックデータを使用します。',
-        });
+          figma.ui.postMessage({
+            type: 'warning',
+            message: 'ネットワークエラーが発生しました。プロキシサーバーの状態を確認してください。',
+          });
+        } else {
+          figma.ui.postMessage({
+            type: 'warning',
+            message: 'API接続に失敗しました。高品質なモックデータを使用します。',
+          });
+        }
       }
     } catch (fetchError) {
       console.error('API request error:', fetchError);
