@@ -26,7 +26,7 @@ const DEFAULT_API_SETTINGS: ApiSettings = {
 };
 
 // プロキシサーバーのURL
-const PROXY_URL = 'https://figma-ai-plugin.netlify.app/.netlify/functions/proxy';
+const PROXY_URL = 'https://figma-plugin-yoriss67s-projects.vercel.app/api/proxy';
 
 // 現在のAPI設定
 let currentApiSettings: ApiSettings = { ...DEFAULT_API_SETTINGS };
