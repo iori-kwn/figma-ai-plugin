@@ -1144,12 +1144,6 @@ Output ONLY JSON. No markdown, no explanations.`;
       try {
         console.log('Sending request to proxy server...');
 
-        // Add client-side timeout to complement server-side timeout
-        const controller = new AbortController();
-        const clientTimeoutId = setTimeout(() => {
-          controller.abort();
-        }, 55000); // 55 seconds - slightly less than server timeout
-
         const startTime = Date.now();
 
         const response = await fetch(PROXY_URL, {
@@ -1159,10 +1153,8 @@ Output ONLY JSON. No markdown, no explanations.`;
             'x-api-key': currentApiSettings.apiKey,
           },
           body: JSON.stringify(requestData),
-          signal: controller.signal,
         });
 
-        clearTimeout(clientTimeoutId);
         const requestDuration = Date.now() - startTime;
 
         console.log('Response status:', response.status);
@@ -1346,14 +1338,7 @@ Output ONLY JSON. No markdown, no explanations.`;
         console.error('Fetch request failed:', err);
 
         // Enhanced error handling for different types of errors
-        if ((err as Error).name === 'AbortError') {
-          console.error('Client-side timeout: Request was aborted after 55 seconds');
-          figma.ui.postMessage({
-            type: 'warning',
-            message:
-              'リクエストがタイムアウトしました。より短いプロンプトを試すか、Vercel Proプランのご利用をご検討ください。',
-          });
-        } else if (err instanceof TypeError && (err as TypeError).message.indexOf('Failed to fetch') !== -1) {
+        if (err instanceof TypeError && (err as TypeError).message.indexOf('Failed to fetch') !== -1) {
           console.error('Network error: This might be a CORS issue or network connectivity problem');
           console.error('Possible solutions:');
           console.error('1. Check your internet connection');
