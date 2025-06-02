@@ -1,5 +1,7 @@
+const fetch = require('node-fetch');
+
 // Netlify function to proxy requests to Claude API
-exports.handler = async (event, context) => {
+exports.handler = async (event, _context) => {
   // Set comprehensive CORS headers for all responses
   const headers = {
     'Access-Control-Allow-Origin': '*',
@@ -9,6 +11,12 @@ exports.handler = async (event, context) => {
     'Access-Control-Allow-Credentials': 'false',
     'Content-Type': 'application/json',
   };
+
+  console.log('📍 Function invoked:', {
+    method: event.httpMethod,
+    path: event.path,
+    headers: Object.keys(event.headers || {}),
+  });
 
   // Handle preflight OPTIONS request
   if (event.httpMethod === 'OPTIONS') {
@@ -31,6 +39,7 @@ exports.handler = async (event, context) => {
         timestamp: new Date().toISOString(),
         message: 'Use POST method to send requests to Claude API',
         environment: 'Netlify Functions',
+        nodeVersion: process.version,
       }),
     };
   }
@@ -50,11 +59,6 @@ exports.handler = async (event, context) => {
 
   try {
     console.log('🚀 Processing POST request to Claude API');
-    console.log('📥 Event details:', {
-      httpMethod: event.httpMethod,
-      headers: Object.keys(event.headers || {}),
-      bodyLength: event.body ? event.body.length : 0,
-    });
 
     // Get the API key from headers
     const apiKey = event.headers['x-api-key'] || event.headers['X-API-Key'];
@@ -79,13 +83,27 @@ exports.handler = async (event, context) => {
       requestBody = JSON.parse(event.body || '{}');
       console.log('📝 Request body parsed successfully');
     } catch (parseError) {
-      console.error('❌ Failed to parse request body:', parseError);
+      console.error('❌ Failed to parse request body:', parseError.message);
       return {
         statusCode: 400,
         headers,
         body: JSON.stringify({
           error: 'Invalid JSON in request body',
           details: parseError.message,
+        }),
+      };
+    }
+
+    // Validate required fields
+    if (!requestBody.model || !requestBody.messages) {
+      console.error('❌ Missing required fields in request body');
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({
+          error: 'Missing required fields',
+          required: ['model', 'messages'],
+          received: Object.keys(requestBody),
         }),
       };
     }
