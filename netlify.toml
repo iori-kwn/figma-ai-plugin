@@ -1,13 +1,24 @@
 [build]
   functions = "netlify/functions"
+  command = "npm run build"
+  publish = "."
 
 [functions]
   directory = "netlify/functions"
+
+[[headers]]
+  for = "/.netlify/functions/*"
+  [headers.values]
+    Access-Control-Allow-Origin = "*"
+    Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
+    Access-Control-Allow-Headers = "Content-Type, Authorization, x-api-key, anthropic-version, X-Requested-With"
+    Access-Control-Max-Age = "86400"
+    Access-Control-Allow-Credentials = "false"
 
 [[headers]]
   for = "/api/*"
   [headers.values]
     Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Methods = "GET, POST, PUT, DELETE, OPTIONS"
-    Access-Control-Allow-Headers = "Content-Type, Authorization, x-api-key, anthropic-version"
+    Access-Control-Allow-Headers = "Content-Type, Authorization, x-api-key, anthropic-version, X-Requested-With"
     Access-Control-Max-Age = "86400" 
