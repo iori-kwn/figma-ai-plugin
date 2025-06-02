@@ -108,6 +108,7 @@ async function testApiConnection(): Promise<boolean> {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': currentApiSettings.apiKey,
       },
       body: JSON.stringify(testRequest),
     });
