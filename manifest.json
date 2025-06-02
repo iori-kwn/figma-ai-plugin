@@ -9,12 +9,7 @@
   "editorType": ["figma"],
   "ui": "ui.html",
   "networkAccess": {
-    "allowedDomains": [
-      "https://api.anthropic.com",
-      "https://*.anthropic.com",
-      "https://figma-plugin-nz8s73k04-yoriss67s-projects.vercel.app",
-      "https://*.vercel.app"
-    ],
+    "allowedDomains": ["https://figma-ai-plugin.netlify.app", "https://*.netlify.app"],
     "reasoning": "Claude APIを使用してテキストからデザインを生成するため"
   }
 }
