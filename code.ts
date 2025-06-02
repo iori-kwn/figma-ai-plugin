@@ -18,13 +18,6 @@ interface ClaudeRequestBase {
   }[];
 }
 
-interface ClaudeRequestWithLearningDisabled extends ClaudeRequestBase {
-  system: string;
-  claude_api_params: {
-    disable_model_learning: boolean;
-  };
-}
-
 // API設定のデフォルト値
 const DEFAULT_API_SETTINGS: ApiSettings = {
   apiService: 'anthropic',
@@ -1113,11 +1106,17 @@ Required format:
 
 Output ONLY JSON. No markdown, no explanations.`;
 
-      // リクエストデータの作成
-      const baseRequest: ClaudeRequestBase = {
+      // 学習無効化オプションが有効な場合はシステムプロンプトに追記
+      let finalSystemPrompt = systemPrompt;
+      if (disableLearning) {
+        finalSystemPrompt += '\n\nNote: Please do not use this conversation for model training.';
+      }
+
+      // リクエストデータの作成（Claude APIの公式仕様に準拠）
+      const requestData: ClaudeRequestBase = {
         model: currentApiSettings.apiModel,
         max_tokens: 1000,
-        system: systemPrompt,
+        system: finalSystemPrompt,
         messages: [
           {
             role: 'user',
@@ -1125,17 +1124,6 @@ Output ONLY JSON. No markdown, no explanations.`;
           },
         ],
       };
-
-      // 学習無効化オプションが有効な場合
-      let requestData: ClaudeRequestBase | ClaudeRequestWithLearningDisabled = baseRequest;
-      if (disableLearning) {
-        requestData = {
-          ...baseRequest,
-          claude_api_params: {
-            disable_model_learning: true,
-          },
-        };
-      }
 
       console.log('Trying to connect to proxy server...');
       console.log('Request data:', JSON.stringify(requestData, null, 2));
