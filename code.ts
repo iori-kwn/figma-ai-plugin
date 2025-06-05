@@ -26,7 +26,7 @@ const DEFAULT_API_SETTINGS: ApiSettings = {
 };
 
 // プロキシサーバーのURL
-const PROXY_URL = 'https://figma-plugin-yoriss67s-projects.vercel.app/api/proxy';
+const PROXY_URL = 'https://m06cni4nik.execute-api.ap-northeast-1.amazonaws.com/dev/claude';
 
 // 現在のAPI設定
 let currentApiSettings: ApiSettings = { ...DEFAULT_API_SETTINGS };
@@ -182,11 +182,156 @@ interface ClaudeResponse {
 }
 
 /**
+ * JSON修復機能: 不完全なJSONを修復する
+ */
+function repairIncompleteJSON(text: string): string {
+  let repairedText = text.trim();
+
+  console.log('Starting JSON repair process...');
+  console.log('Original text preview:', repairedText.substring(0, 200));
+
+  // Count brackets and braces
+  const openBrackets = (repairedText.match(/\[/g) || []).length;
+  const closeBrackets = (repairedText.match(/\]/g) || []).length;
+  const openBraces = (repairedText.match(/\{/g) || []).length;
+  const closeBraces = (repairedText.match(/\}/g) || []).length;
+
+  console.log('JSON repair analysis:');
+  console.log(`  - Open brackets [: ${openBrackets}, Close brackets ]: ${closeBrackets}`);
+  console.log(`  - Open braces {: ${openBraces}, Close braces }: ${closeBraces}`);
+
+  // For severely truncated JSON, create a minimal valid structure
+  if (repairedText.length < 500 && openBrackets > closeBrackets + 1) {
+    console.log('Severely truncated JSON detected, creating minimal valid structure');
+
+    // Find the main frame structure
+    const frameMatch = repairedText.match(
+      /\{\s*"type":\s*"FRAME"[^}]*"name":\s*"([^"]*)"[^}]*"width":\s*(\d+)[^}]*"height":\s*(\d+)/,
+    );
+
+    if (frameMatch) {
+      const [, frameName, width, height] = frameMatch;
+      return `{
+        "nodes": [
+          {
+            "type": "FRAME",
+            "name": "${frameName}",
+            "width": ${width},
+            "height": ${height},
+            "fills": [{"type": "SOLID", "color": {"r": 0.98, "g": 0.98, "b": 1}}],
+            "children": []
+          }
+        ]
+      }`;
+    }
+
+    // Fallback minimal structure
+    return `{
+      "nodes": [
+        {
+          "type": "FRAME",
+          "name": "Recovered Design",
+          "width": 375,
+          "height": 812,
+          "fills": [{"type": "SOLID", "color": {"r": 0.98, "g": 0.98, "b": 1}}],
+          "children": []
+        }
+      ]
+    }`;
+  }
+
+  // Step 1: Handle incomplete property name/value pairs
+  // Look for patterns like: "property": or "property":value
+  const incompletePropertyPattern = /,?\s*"[^"]*"\s*:\s*[^,}\]]*$/;
+  if (incompletePropertyPattern.test(repairedText)) {
+    console.log('Detected incomplete property, attempting to complete it');
+
+    // If it ends with just "property": add a default value
+    if (/"[^"]*"\s*:\s*$/.test(repairedText)) {
+      repairedText += '""';
+      console.log('Added empty string value to incomplete property');
+    } else if (/"[^"]*"\s*:\s*[^,}\]"]*$/.test(repairedText)) {
+      // If it ends with "property": partial_value
+      // Try to determine the intended type and complete it
+      const lastValue = repairedText.match(/:\s*([^,}\]"]*)$/)?.[1] || '';
+      if (/^\d+\.?\d*$/.test(lastValue)) {
+        // Looks like a number, keep as is if it's valid
+        console.log('Incomplete numeric value detected, keeping as is');
+      } else if (lastValue.startsWith('"')) {
+        // Incomplete string, close it
+        repairedText += '"';
+        console.log('Closed incomplete string value');
+      } else {
+        // Unknown type, make it a string
+        repairedText = repairedText.replace(/:\s*[^,}\]"]*$/, ': ""');
+        console.log('Replaced incomplete value with empty string');
+      }
+    }
+  }
+
+  // Step 2: Handle incomplete string values
+  // Look for patterns like: "key": "incomplete_value
+  const incompleteStringPattern = /:\s*"[^"]*$/;
+  if (incompleteStringPattern.test(repairedText)) {
+    console.log('Detected incomplete string value, completing it');
+    repairedText += '"';
+  }
+
+  // Step 3: Remove any trailing incomplete property that might cause issues
+  // Pattern: ends with comma and incomplete property name
+  const trailingIncompletePattern = /,\s*"[^"]*$|,\s*"[^"]*"\s*:\s*$/;
+  if (trailingIncompletePattern.test(repairedText)) {
+    console.log('Removing trailing incomplete property');
+    repairedText = repairedText.replace(trailingIncompletePattern, '');
+  }
+
+  // Step 4: Add missing commas where needed (but be careful not to add after the last property)
+  // Look for patterns where we need commas: "value" { or "value" [
+  repairedText = repairedText.replace(/"\s*([{[])/g, '",$1');
+  repairedText = repairedText.replace(/(\d)\s*([{[])/g, '$1,$2');
+
+  // But don't add comma after the opening brace/bracket
+  repairedText = repairedText.replace(/([{[]),/g, '$1');
+
+  // Step 5: Missing closing brackets
+  if (openBrackets > closeBrackets) {
+    const missingBrackets = openBrackets - closeBrackets;
+    console.log(`Adding ${missingBrackets} missing closing brackets`);
+    repairedText += ']'.repeat(missingBrackets);
+  }
+
+  // Step 6: Missing closing braces
+  if (openBraces > closeBraces) {
+    const missingBraces = openBraces - closeBraces;
+    console.log(`Adding ${missingBraces} missing closing braces`);
+    repairedText += '}'.repeat(missingBraces);
+  }
+
+  // Step 7: Clean up trailing commas that might cause parsing errors
+  repairedText = repairedText.replace(/,(\s*[}\]])/g, '$1');
+
+  // Step 8: Try to fix common JSON syntax issues
+  // Fix missing quotes around property names
+  repairedText = repairedText.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+
+  // Fix single quotes to double quotes
+  repairedText = repairedText.replace(/'/g, '"');
+
+  // Step 9: Final cleanup - remove any orphaned commas at the end
+  repairedText = repairedText.replace(/,\s*$/, '');
+
+  console.log('Repair completed. Preview:', repairedText.substring(0, 200));
+  console.log('Repaired text ends with:', repairedText.substring(Math.max(0, repairedText.length - 100)));
+
+  return repairedText;
+}
+
+/**
  * Claude APIにリクエストを送信する
  */
 async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promise<ClaudeResponse> {
   // デフォルトのフォールバック
-  const mockResponse: ClaudeResponse = {
+  const defaultMockResponse: ClaudeResponse = {
     nodes: [
       {
         type: 'FRAME',
@@ -1090,35 +1235,64 @@ async function sendToClaudeApi(prompt: string, disableLearning: boolean): Promis
 
     // APIリクエストを試行
     try {
-      // システムプロンプト（60秒制限に最適化）
-      const systemPrompt = `Create a SIMPLE Figma UI design. Output ONLY valid JSON, no text, no explanations.
+      // システムプロンプト（Claude 4ベストプラクティス準拠）
+      const systemPrompt = `You are creating a Figma UI design for a mobile application. This design will be implemented in a real mobile app, so it needs to be professional, modern, and user-friendly. The quality of this design directly impacts user experience and business success.
 
-IMPORTANT: Keep response under 500 characters. Use minimal elements (max 5 nodes).
+<design_instructions>
+Create a MODERN, ATTRACTIVE, and FULLY-FEATURED mobile UI design. Don't hold back. Give it your all.
 
-Required format:
+DESIGN PRINCIPLES:
+- Include as many relevant features and interactions as possible
+- Go beyond the basics to create a fully-featured implementation
+- Apply modern design principles: hierarchy, contrast, balance, and movement
+- Add thoughtful details like proper spacing, visual hierarchy, and micro-interactions
+- Use realistic content and meaningful UI elements that enhance usability
+- Apply current design trends: rounded corners, subtle shadows, modern typography
+- Create an impressive demonstration showcasing modern mobile UI capabilities
+
+TECHNICAL REQUIREMENTS:
+- Use 10-20 nodes for detailed, professional design
+- Ensure proper spacing (8px grid system recommended)
+- Include realistic content with proper information hierarchy
+- Use modern color schemes with good contrast ratios
+- Add visual depth through layering and elevation
+</design_instructions>
+
+<json_format>
+Output ONLY valid JSON in this exact structure:
+
 {
   "nodes": [
     {
       "type": "FRAME",
-      "name": "App",
+      "name": "App Container",
       "width": 375,
-      "height": 200,
-      "fills": [{"type": "SOLID", "color": {"r": 1, "g": 1, "b": 1}}],
+      "height": 812,
+      "fills": [{"type": "SOLID", "color": {"r": 0.95, "g": 0.97, "b": 1}}],
       "children": [
         {
           "type": "TEXT",
-          "name": "Title",
-          "x": 20,
-          "y": 20,
-          "characters": "Hello",
-          "fontSize": 24
+          "name": "Location",
+          "x": 24,
+          "y": 80,
+          "characters": "Tokyo, Japan",
+          "fontSize": 18,
+          "fills": [{"type": "SOLID", "color": {"r": 0.2, "g": 0.2, "b": 0.2}}]
         }
       ]
     }
   ]
 }
+</json_format>
 
-Create SIMPLE design with 3-5 elements max. Output ONLY JSON.`;
+<output_requirements>
+- Create detailed, modern mobile app design with professional quality
+- Include comprehensive visual hierarchy and proper spacing
+- Add realistic, meaningful content and labels
+- Use modern color schemes and typography
+- Apply thoughtful UI/UX design patterns
+- Output ONLY the JSON structure with no additional text or explanations
+</output_requirements>`;
 
       // 学習無効化オプションが有効な場合はシステムプロンプトに追記
       let finalSystemPrompt = systemPrompt;
@@ -1129,7 +1303,7 @@ Create SIMPLE design with 3-5 elements max. Output ONLY JSON.`;
       // リクエストデータの作成（Claude APIの公式仕様に準拠）
       const requestData: ClaudeRequestBase = {
         model: currentApiSettings.apiModel,
-        max_tokens: 200,
+        max_tokens: 3000,
         system: finalSystemPrompt,
         messages: [
           {
@@ -1318,6 +1492,43 @@ Create SIMPLE design with 3-5 elements max. Output ONLY JSON.`;
                 console.error(`  - Open brackets [: ${openBrackets}, Close brackets ]: ${closeBrackets}`);
                 console.error(`  - Open braces {: ${openBraces}, Close braces }: ${closeBraces}`);
 
+                // Try to repair the JSON if it's incomplete
+                if (openBrackets > closeBrackets || openBraces > closeBraces) {
+                  console.log('Attempting to repair incomplete JSON...');
+                  try {
+                    const repairedJSON = repairIncompleteJSON(jsonText);
+                    console.log('JSON repair attempt - Length before:', jsonText.length, 'after:', repairedJSON.length);
+
+                    const parsedRepairedResponse = JSON.parse(repairedJSON);
+                    console.log('Successfully parsed repaired JSON!');
+
+                    // Validate the repaired response
+                    if (
+                      parsedRepairedResponse.nodes &&
+                      Array.isArray(parsedRepairedResponse.nodes) &&
+                      parsedRepairedResponse.nodes.length > 0
+                    ) {
+                      const hasValidStructure = parsedRepairedResponse.nodes.every(
+                        (node: NodeSchema) =>
+                          node.type &&
+                          node.name &&
+                          (node.type === 'FRAME' || node.type === 'RECTANGLE' || node.type === 'TEXT'),
+                      );
+
+                      if (hasValidStructure) {
+                        console.log('Repaired JSON has valid structure, using it');
+                        figma.ui.postMessage({
+                          type: 'success',
+                          message: `AI生成デザインを受信しました（修復済み） (${Math.round(requestDuration / 1000)}秒)`,
+                        });
+                        return parsedRepairedResponse;
+                      }
+                    }
+                  } catch (repairError) {
+                    console.error('Failed to repair JSON:', (repairError as Error).message);
+                  }
+                }
+
                 figma.ui.postMessage({
                   type: 'warning',
                   message: `JSON解析エラー: ${
@@ -1366,9 +1577,8 @@ Create SIMPLE design with 3-5 elements max. Output ONLY JSON.`;
     console.log('Using mock data as fallback');
     return mockResponse;
   } catch (error) {
-    console.error('Error in sendToClaudeApi:', error);
-    // エラーが発生した場合もモックデータを返す
-    return mockResponse;
+    console.error('Unexpected error in sendToClaudeApi:', error);
+    return defaultMockResponse;
   }
 }
 

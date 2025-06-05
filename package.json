@@ -1,48 +1,19 @@
 {
-  "name": "figma-claude-design-plugin",
-  "version": "1.0.0",
-  "description": "Figma plugin that generates design elements using Claude AI",
-  "main": "code.js",
+  "name": "figma-claude-proxy-apigateway",
+  "version": "3.0.0",
+  "description": "Enhanced API Gateway + Lambda + Secret Manager proxy for Claude API with 10MB response support",
+  "type": "module",
+  "main": "lambda-apigateway-enhanced.mjs",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "lint": "eslint --ext .ts,.tsx --ignore-pattern node_modules .",
-    "lint:fix": "eslint --ext .ts,.tsx --ignore-pattern node_modules --fix .",
-    "watch": "npm run build -- --watch",
-    "dev": "vercel dev"
+    "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
+  "keywords": ["lambda", "claude", "figma", "proxy", "aws", "api-gateway", "secret-manager"],
+  "author": "Figma Claude Proxy API Gateway",
   "license": "MIT",
   "dependencies": {
-    "node-fetch": "^2.7.0"
+    "@aws-sdk/client-secrets-manager": "^3.0.0"
   },
-  "devDependencies": {
-    "@figma/eslint-plugin-figma-plugins": "*",
-    "@figma/plugin-typings": "*",
-    "@typescript-eslint/eslint-plugin": "^6.12.0",
-    "@typescript-eslint/parser": "^6.12.0",
-    "eslint": "^8.54.0",
-    "typescript": "^5.3.2"
-  },
-  "eslintConfig": {
-    "extends": [
-      "eslint:recommended",
-      "plugin:@typescript-eslint/recommended",
-      "plugin:@figma/figma-plugins/recommended"
-    ],
-    "parser": "@typescript-eslint/parser",
-    "parserOptions": {
-      "project": "./tsconfig.json"
-    },
-    "root": true,
-    "rules": {
-      "@typescript-eslint/no-unused-vars": [
-        "error",
-        {
-          "argsIgnorePattern": "^_",
-          "varsIgnorePattern": "^_",
-          "caughtErrorsIgnorePattern": "^_"
-        }
-      ]
-    }
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

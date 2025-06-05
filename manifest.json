@@ -9,7 +9,14 @@
   "editorType": ["figma"],
   "ui": "ui.html",
   "networkAccess": {
-    "allowedDomains": ["https://figma-plugin-yoriss67s-projects.vercel.app", "https://*.vercel.app"],
+    "allowedDomains": [
+      "https://m06cni4nik.execute-api.ap-northeast-1.amazonaws.com",
+      "https://*.execute-api.ap-northeast-1.amazonaws.com",
+      "https://45eu4yy74z3uljhe74ogyda4bm0stwqt.lambda-url.ap-northeast-1.on.aws",
+      "https://*.lambda-url.ap-northeast-1.on.aws",
+      "https://figma-plugin-yoriss67s-projects.vercel.app",
+      "https://*.vercel.app"
+    ],
     "reasoning": "Claude APIを使用してテキストからデザインを生成するため"
   }
 }
