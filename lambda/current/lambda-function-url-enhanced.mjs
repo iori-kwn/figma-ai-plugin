@@ -10,6 +10,79 @@ let cachedApiKey = null;
 let cacheExpiry = 0;
 const CACHE_TTL = 300000; // 5 minutes
 
+/**
+ * Clean markdown-formatted JSON from AI responses
+ * Handles common patterns like ```json...``` blocks
+ */
+function cleanMarkdownJson(responseText) {
+  if (!responseText) return responseText;
+
+  console.log('Cleaning markdown JSON, input length:', responseText.length);
+  console.log('Input preview:', responseText.substring(0, 200));
+
+  let cleanedJson = responseText;
+
+  try {
+    // Pattern 1: ```json...``` blocks (most reliable)
+    let jsonMatch = responseText.match(/```json\s*\n?([\s\S]*?)\n?\s*```/);
+    if (jsonMatch) {
+      cleanedJson = jsonMatch[1].trim();
+      console.log('Extracted JSON from ```json blocks (Pattern 1)');
+    }
+    // Pattern 2: Generic ``` blocks starting with {
+    else {
+      jsonMatch = responseText.match(/```\s*\n?([\s\S]*?)\n?\s*```/);
+      if (jsonMatch && jsonMatch[1].trim().startsWith('{')) {
+        cleanedJson = jsonMatch[1].trim();
+        console.log('Extracted JSON from generic ``` blocks (Pattern 2)');
+      }
+      // Pattern 3: Remove just the markdown markers
+      else if (responseText.includes('```json')) {
+        cleanedJson = responseText
+          .replace(/^```json\s*\n?/, '') // Remove opening ```json
+          .replace(/\n?\s*```\s*$/, '') // Remove closing ```
+          .trim();
+        console.log('Cleaned JSON by removing markdown markers (Pattern 3)');
+      }
+      // Pattern 4: Find the first balanced JSON object
+      else {
+        const firstBrace = responseText.indexOf('{');
+        if (firstBrace !== -1) {
+          let braceCount = 0;
+          let endBrace = -1;
+
+          for (let i = firstBrace; i < responseText.length; i++) {
+            if (responseText[i] === '{') {
+              braceCount++;
+            } else if (responseText[i] === '}') {
+              braceCount--;
+              if (braceCount === 0) {
+                endBrace = i;
+                break;
+              }
+            }
+          }
+
+          if (endBrace !== -1) {
+            cleanedJson = responseText.substring(firstBrace, endBrace + 1);
+            console.log('Extracted balanced JSON object (Pattern 4)');
+          }
+        }
+      }
+    }
+
+    // Validate that we have valid JSON
+    JSON.parse(cleanedJson);
+    console.log('Successfully cleaned and validated JSON, length:', cleanedJson.length);
+
+    return cleanedJson;
+  } catch (error) {
+    console.error('Error cleaning markdown JSON:', error.message);
+    console.log('Returning original text as fallback');
+    return responseText;
+  }
+}
+
 export const handler = async (event, context) => {
   const startTime = Date.now();
 
@@ -164,21 +237,22 @@ export const handler = async (event, context) => {
       expectedResponseSize: 'Large design JSON',
     });
 
-    // Prepare Claude API request with optimizations
+    // Prepare Claude API request with streaming enabled (社内エンジニアのアドバイスに基づく)
     const claudeRequest = {
       model: requestBody.model,
       max_tokens: maxTokens,
       system: requestBody.system,
       messages: requestBody.messages,
-      stream: false,
+      stream: true, // ストリーミングを有効化
     };
 
-    // Call Claude API with extended timeout for large responses
+    // Call Claude API with streaming configuration
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 150000); // 2.5 minutes
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      console.log('Making Claude API request with streaming...');
+      const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -191,62 +265,51 @@ export const handler = async (event, context) => {
 
       clearTimeout(timeoutId);
 
-      const requestDuration = Date.now() - startTime;
-      console.log(`Claude API response: ${response.status} in ${requestDuration}ms`);
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        console.error('Claude API error:', data);
-        return createResponse(response.status, {
-          error: 'Claude API error',
-          details: data,
-          requestId: context.awsRequestId,
-          duration: requestDuration,
-        });
+      if (!claudeResponse.ok) {
+        console.error('Claude API error:', claudeResponse.status, claudeResponse.statusText);
+        const errorText = await claudeResponse.text();
+        console.error('Error details:', errorText);
+        throw new Error(`Claude API error: ${claudeResponse.status} - ${errorText}`);
       }
 
-      // Enhanced response metrics
-      const responseSize = JSON.stringify(data).length;
-      console.log('Success metrics:', {
-        responseSize,
-        requestDuration,
-        maxTokensUsed: maxTokens,
-        requestId: context.awsRequestId,
-        sizeInKB: Math.round(responseSize / 1024),
-        avgTokensPerSecond: Math.round(maxTokens / (requestDuration / 1000)),
-      });
+      // ストリーミングレスポンスの処理（社内エンジニアのアドバイスに基づく）
+      if (claudeResponse.body) {
+        console.log('Streaming response body available');
 
-      // Enhanced response validation for design content
-      if (data.content?.[0]?.text) {
-        const responseText = data.content[0].text;
-        const hasJSONContent = responseText.includes('"nodes"');
-        const hasValidStructure = responseText.includes('"type"') && responseText.includes('"name"');
+        // ストリーミングヘッダーを設定
+        return {
+          statusCode: 200,
+          headers: {
+            ...corsHeaders,
+            'Content-Type': 'text/plain; charset=utf-8',
+            'Transfer-Encoding': 'chunked',
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no', // Nginxバッファリング無効
+          },
+          body: await processStreamingResponse(claudeResponse),
+          isBase64Encoded: false,
+        };
+      } else {
+        // フォールバック: 非ストリーミング処理
+        const data = await claudeResponse.json();
+        console.log('Non-streaming Claude API response received');
 
-        console.log('Design Response validation:', {
-          hasJSONContent,
-          hasValidStructure,
-          textLength: responseText.length,
-          startsWithJSON: responseText.trim().startsWith('{'),
-          endsWithValidJSON: responseText.trim().endsWith('}') || responseText.trim().endsWith('```'),
-          isLikelyComplete: responseText.length > 500 && hasValidStructure,
+        const responseSize = JSON.stringify(data).length;
+
+        return createResponse(200, {
+          ...data,
+          _meta: {
+            requestId: context.awsRequestId,
+            requestDuration: Date.now() - startTime,
+            timestamp: new Date().toISOString(),
+            maxTokensUsed: maxTokens,
+            responseSize,
+            version: '2.0',
+            infrastructure: 'Lambda Function URL + Secret Manager + Streaming',
+            improvements: 'Enhanced for streaming and detailed design generation',
+          },
         });
       }
-
-      // Return enhanced response with metadata
-      return createResponse(200, {
-        ...data,
-        _meta: {
-          requestId: context.awsRequestId,
-          requestDuration,
-          timestamp: new Date().toISOString(),
-          maxTokensUsed: maxTokens,
-          responseSize,
-          version: '2.0',
-          infrastructure: 'Lambda Function URL + Secret Manager',
-          improvements: 'Enhanced for detailed design generation',
-        },
-      });
     } catch (fetchError) {
       clearTimeout(timeoutId);
 
@@ -327,5 +390,88 @@ async function getApiKey() {
     cacheExpiry = 0;
 
     return null;
+  }
+}
+
+/**
+ * Process streaming response from Claude API
+ * 社内エンジニア Maki Fujiwara のアドバイスに基づく実装
+ */
+async function processStreamingResponse(claudeResponse) {
+  try {
+    const reader = claudeResponse.body.getReader();
+    const decoder = new TextDecoder();
+    let fullResponse = '';
+
+    console.log('Starting to process streaming response...');
+
+    while (true) {
+      const { done, value } = await reader.read();
+
+      if (done) {
+        console.log('Streaming response complete, total length:', fullResponse.length);
+        break;
+      }
+
+      // Decode the chunk
+      const chunk = decoder.decode(value, { stream: true });
+
+      // Claude APIのストリーミングフォーマットを処理
+      // フォーマット: "data: {json}\n\n" または "event: message_stop\n\n"
+      const lines = chunk.split('\n');
+
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          try {
+            const jsonData = JSON.parse(line.slice(6)); // "data: " を除去
+
+            // テキストコンテンツを抽出
+            if (jsonData.type === 'content_block_delta' && jsonData.delta?.text) {
+              fullResponse += jsonData.delta.text;
+            }
+          } catch (e) {
+            // JSON解析エラーは無視（接続チャンクなど）
+            console.log('Skipping non-JSON line:', line.substring(0, 50));
+          }
+        } else if (line.startsWith('event: message_stop')) {
+          console.log('Received message_stop event');
+          break;
+        }
+      }
+    }
+
+    // 完全なレスポンステキストを返す前にマークダウンをクリーニング
+    console.log('Full response received, checking for markdown formatting...');
+
+    if (fullResponse.includes('```json') || fullResponse.includes('```')) {
+      console.log('Markdown formatting detected in streaming response, cleaning...');
+
+      try {
+        const cleanedJson = cleanMarkdownJson(fullResponse);
+
+        // クリーニングされたJSONが有効か検証
+        JSON.parse(cleanedJson);
+
+        console.log('Successfully cleaned streaming response:', {
+          originalLength: fullResponse.length,
+          cleanedLength: cleanedJson.length,
+          isValidJSON: true,
+        });
+
+        return cleanedJson;
+      } catch (cleanError) {
+        console.error('Failed to clean markdown from streaming response:', cleanError.message);
+        console.log('Returning original streaming response as fallback');
+        // クリーニングに失敗した場合は元のレスポンスを返す
+      }
+    }
+
+    return fullResponse;
+  } catch (error) {
+    console.error('Error processing streaming response:', error);
+    console.error('Error stack:', error.stack);
+
+    // エラー時はより詳細な情報を返す
+    throw new Error(`Streaming processing failed: ${error.message}`);
   }
 }

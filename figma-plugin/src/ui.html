@@ -331,7 +331,7 @@
         );
       };
 
-      // プラグインからのメッセージ受信
+      // プラグインからのメッセージ受信（社内エンジニアのアドバイスに基づいてストリーミング対応）
       onmessage = (event) => {
         const msg = event.data.pluginMessage;
 
@@ -373,7 +373,148 @@
             document.getElementById('api-model').value = msg.apiModel;
           }
         }
+        // =================== ストリーミング関連のメッセージ処理（社内エンジニアのアドバイスに基づく） ===================
+        else if (msg.type === 'stream-update') {
+          // 部分的なデータを表示
+          updateStreamDisplay(msg.chunk);
+        } else if (msg.type === 'json-chunk') {
+          // JSONチャンクを処理
+          processJsonChunk(msg.chunk);
+        } else if (msg.type === 'stream-complete') {
+          // 処理完了
+          finalizeStreamDisplay(msg.fullResult || msg.chunks);
+        } else if (msg.type === 'stream-error') {
+          // ストリーミングエラー処理
+          displayStreamError(msg.error);
+        }
       };
+
+      /**
+       * ストリームデータの表示を更新する関数（社内エンジニアのアドバイスに基づく）
+       * @param {string} chunk - 受信したテキストチャンク
+       */
+      function updateStreamDisplay(chunk) {
+        console.log('Received stream chunk:', chunk.length, 'characters');
+
+        // ステータス表示を更新
+        const statusElement = document.getElementById('status');
+        if (statusElement) {
+          statusElement.innerHTML = `<span class="loading-spinner"></span> AI応答をストリーミング受信中... (${chunk.length}文字)`;
+        }
+
+        // 進捗を視覚的に表示（オプション）
+        let streamOutput = document.getElementById('stream-output');
+        if (!streamOutput) {
+          // ストリーミング出力用の要素を作成
+          streamOutput = document.createElement('div');
+          streamOutput.id = 'stream-output';
+          streamOutput.style.cssText = `
+            margin-top: 10px;
+            padding: 8px;
+            background-color: #f5f5f5;
+            border-radius: 4px;
+            font-size: 12px;
+            max-height: 100px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+          `;
+          document
+            .querySelector('.tab-content.active')
+            .appendChild(streamOutput);
+        }
+
+        // チャンクを追加表示（デバッグ用）
+        streamOutput.textContent = (streamOutput.textContent || '') + chunk;
+        streamOutput.scrollTop = streamOutput.scrollHeight;
+      }
+
+      /**
+       * JSONチャンクを処理する関数（社内エンジニアのアドバイスに基づく）
+       * @param {Object} chunk - 受信したJSONチャンク
+       */
+      function processJsonChunk(chunk) {
+        console.log('Received JSON chunk:', chunk);
+
+        // JSONチャンク用のリスト表示
+        let chunksList = document.getElementById('chunks-list');
+        if (!chunksList) {
+          chunksList = document.createElement('ul');
+          chunksList.id = 'chunks-list';
+          chunksList.style.cssText = `
+            margin-top: 10px;
+            padding: 8px;
+            background-color: #e8f4fd;
+            border-radius: 4px;
+            font-size: 12px;
+            max-height: 120px;
+            overflow-y: auto;
+          `;
+          document.querySelector('.tab-content.active').appendChild(chunksList);
+        }
+
+        const item = document.createElement('li');
+        item.textContent = `ID: ${chunk.id}, Data: ${JSON.stringify(
+          chunk.data,
+        )}`;
+        item.style.cssText = 'margin-bottom: 4px; padding: 2px;';
+        chunksList.appendChild(item);
+        chunksList.scrollTop = chunksList.scrollHeight;
+      }
+
+      /**
+       * ストリーム表示を完了する関数（社内エンジニアのアドバイスに基づく）
+       * @param {string|Array} result - 完全な結果
+       */
+      function finalizeStreamDisplay(result) {
+        console.log('Stream complete:', result);
+
+        // 完了メッセージを表示
+        const statusElement = document.getElementById('status');
+        if (statusElement) {
+          statusElement.innerHTML =
+            '<span class="success-message">✅ ストリーミング完了 - デザイン生成中...</span>';
+        }
+
+        // ストリーミング出力要素を削除（オプション）
+        const streamOutput = document.getElementById('stream-output');
+        if (streamOutput) {
+          setTimeout(() => {
+            streamOutput.remove();
+          }, 2000); // 2秒後に削除
+        }
+
+        const chunksList = document.getElementById('chunks-list');
+        if (chunksList) {
+          setTimeout(() => {
+            chunksList.remove();
+          }, 2000);
+        }
+      }
+
+      /**
+       * ストリーミングエラーを表示する関数（社内エンジニアのアドバイスに基づく）
+       * @param {string} error - エラーメッセージ
+       */
+      function displayStreamError(error) {
+        console.error('Stream error:', error);
+
+        const statusElement = document.getElementById('status');
+        if (statusElement) {
+          statusElement.innerHTML = `<span class="error-message">⚠️ ストリーミングエラー: ${error}</span>`;
+        }
+
+        // エラー時はストリーミング出力要素を削除
+        const streamOutput = document.getElementById('stream-output');
+        if (streamOutput) {
+          streamOutput.remove();
+        }
+
+        const chunksList = document.getElementById('chunks-list');
+        if (chunksList) {
+          chunksList.remove();
+        }
+      }
     </script>
   </body>
 </html>

@@ -19,5 +19,8 @@
     "streaming"
   ],
   "author": "Yumemi Inc.",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.114.0"
+  }
 }

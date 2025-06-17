@@ -10,6 +10,79 @@ let cachedApiKey = null;
 let cacheExpiry = 0;
 const CACHE_TTL = 300000; // 5 minutes
 
+/**
+ * Clean markdown-formatted JSON from AI responses
+ * Handles common patterns like ```json...``` blocks
+ */
+function cleanMarkdownJson(responseText) {
+  if (!responseText) return responseText;
+
+  console.log('Cleaning markdown JSON, input length:', responseText.length);
+  console.log('Input preview:', responseText.substring(0, 200));
+
+  let cleanedJson = responseText;
+
+  try {
+    // Pattern 1: ```json...``` blocks (most reliable)
+    let jsonMatch = responseText.match(/```json\s*\n?([\s\S]*?)\n?\s*```/);
+    if (jsonMatch) {
+      cleanedJson = jsonMatch[1].trim();
+      console.log('Extracted JSON from ```json blocks (Pattern 1)');
+    }
+    // Pattern 2: Generic ``` blocks starting with {
+    else {
+      jsonMatch = responseText.match(/```\s*\n?([\s\S]*?)\n?\s*```/);
+      if (jsonMatch && jsonMatch[1].trim().startsWith('{')) {
+        cleanedJson = jsonMatch[1].trim();
+        console.log('Extracted JSON from generic ``` blocks (Pattern 2)');
+      }
+      // Pattern 3: Remove just the markdown markers
+      else if (responseText.includes('```json')) {
+        cleanedJson = responseText
+          .replace(/^```json\s*\n?/, '') // Remove opening ```json
+          .replace(/\n?\s*```\s*$/, '') // Remove closing ```
+          .trim();
+        console.log('Cleaned JSON by removing markdown markers (Pattern 3)');
+      }
+      // Pattern 4: Find the first balanced JSON object
+      else {
+        const firstBrace = responseText.indexOf('{');
+        if (firstBrace !== -1) {
+          let braceCount = 0;
+          let endBrace = -1;
+
+          for (let i = firstBrace; i < responseText.length; i++) {
+            if (responseText[i] === '{') {
+              braceCount++;
+            } else if (responseText[i] === '}') {
+              braceCount--;
+              if (braceCount === 0) {
+                endBrace = i;
+                break;
+              }
+            }
+          }
+
+          if (endBrace !== -1) {
+            cleanedJson = responseText.substring(firstBrace, endBrace + 1);
+            console.log('Extracted balanced JSON object (Pattern 4)');
+          }
+        }
+      }
+    }
+
+    // Validate that we have valid JSON
+    JSON.parse(cleanedJson);
+    console.log('Successfully cleaned and validated JSON, length:', cleanedJson.length);
+
+    return cleanedJson;
+  } catch (error) {
+    console.error('Error cleaning markdown JSON:', error.message);
+    console.log('Returning original text as fallback');
+    return responseText;
+  }
+}
+
 export const handler = async (event, context) => {
   const startTime = Date.now();
 
@@ -173,12 +246,13 @@ export const handler = async (event, context) => {
       stream: false,
     };
 
-    // Call Claude API with extended timeout for large responses
+    // Call Claude API with enhanced configuration for streaming
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 150000); // 2.5 minutes
 
     try {
-      const response = await fetch('https://api.anthropic.com/v1/messages', {
+      console.log('Making Claude API request...');
+      const claudeResponse = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -191,60 +265,101 @@ export const handler = async (event, context) => {
 
       clearTimeout(timeoutId);
 
-      const requestDuration = Date.now() - startTime;
-      console.log(`Claude API response: ${response.status} in ${requestDuration}ms`);
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        console.error('Claude API error:', data);
-        return createResponse(response.status, {
-          error: 'Claude API error',
-          details: data,
-          requestId: context.awsRequestId,
-          duration: requestDuration,
-        });
+      if (!claudeResponse.ok) {
+        console.error('Claude API error:', claudeResponse.status, claudeResponse.statusText);
+        const errorText = await claudeResponse.text();
+        console.error('Error details:', errorText);
+        throw new Error(`Claude API error: ${claudeResponse.status} - ${errorText}`);
       }
 
-      // Enhanced response metrics
-      const responseSize = JSON.stringify(data).length;
-      console.log('Success metrics:', {
-        responseSize,
-        requestDuration,
-        maxTokensUsed: maxTokens,
-        requestId: context.awsRequestId,
-        sizeInKB: Math.round(responseSize / 1024),
-        avgTokensPerSecond: Math.round(maxTokens / (requestDuration / 1000)),
-      });
+      // Get the response data
+      const data = await claudeResponse.json();
+      console.log('Claude API response received');
 
-      // Enhanced response validation for design content
+      // Calculate response size for metadata
+      const responseSize = JSON.stringify(data).length;
+
+      // Initialize originalResponseText for scope safety
+      let originalResponseText = '';
+      let markdownCleaned = false;
+
+      // Enhanced response validation and cleaning for design content
       if (data.content?.[0]?.text) {
-        const responseText = data.content[0].text;
-        const hasJSONContent = responseText.includes('"nodes"');
-        const hasValidStructure = responseText.includes('"type"') && responseText.includes('"name"');
+        originalResponseText = data.content[0].text;
+        const hasJSONContent = originalResponseText.includes('"nodes"');
+        const hasValidStructure = originalResponseText.includes('"type"') && originalResponseText.includes('"name"');
 
         console.log('Design Response validation:', {
           hasJSONContent,
           hasValidStructure,
-          textLength: responseText.length,
-          startsWithJSON: responseText.trim().startsWith('{'),
-          endsWithValidJSON: responseText.trim().endsWith('}') || responseText.trim().endsWith('```'),
-          isLikelyComplete: responseText.length > 500 && hasValidStructure,
+          textLength: originalResponseText.length,
+          startsWithJSON: originalResponseText.trim().startsWith('{'),
+          endsWithValidJSON: originalResponseText.trim().endsWith('}') || originalResponseText.trim().endsWith('```'),
+          isLikelyComplete: originalResponseText.length > 500 && hasValidStructure,
+          containsMarkdown: originalResponseText.includes('```json') || originalResponseText.includes('```'),
         });
+
+        // Clean markdown formatting from JSON if present
+        if (originalResponseText.includes('```json') || originalResponseText.includes('```')) {
+          console.log('Markdown formatting detected, cleaning JSON...');
+
+          try {
+            const cleanedJson = cleanMarkdownJson(originalResponseText);
+
+            // Validate that the cleaned JSON is parseable
+            JSON.parse(cleanedJson);
+
+            // Replace the original text with cleaned JSON
+            data.content[0].text = cleanedJson;
+            markdownCleaned = true;
+
+            console.log('Successfully cleaned markdown JSON:', {
+              originalLength: originalResponseText.length,
+              cleanedLength: cleanedJson.length,
+              isValidJSON: true,
+            });
+          } catch (cleanError) {
+            console.error('Failed to clean markdown JSON:', cleanError.message);
+            console.log('Keeping original response text as fallback');
+            // Keep original text if cleaning fails
+          }
+        }
+
+        // Check if response is large and needs streaming
+        if (responseSize > 2000000) {
+          // 2MB threshold for streaming
+          console.log('Large response detected, using streaming');
+
+          // For streaming, return the cleaned text content
+          const responseText = data.content[0].text;
+
+          return {
+            statusCode: 200,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'text/plain',
+              'Transfer-Encoding': 'chunked',
+              'Cache-Control': 'no-cache',
+            },
+            body: responseText, // Return the (potentially cleaned) content text
+            isBase64Encoded: false,
+          };
+        }
       }
 
-      // Return enhanced response with metadata
+      // Return enhanced response with metadata for smaller responses
       return createResponse(200, {
         ...data,
         _meta: {
           requestId: context.awsRequestId,
-          requestDuration,
+          requestDuration: Date.now() - startTime,
           timestamp: new Date().toISOString(),
           maxTokensUsed: maxTokens,
           responseSize,
-          version: '2.0',
+          version: '2.1',
           infrastructure: 'Lambda Function URL + Secret Manager',
-          improvements: 'Enhanced for detailed design generation',
+          improvements: 'Enhanced for detailed design generation with markdown JSON cleaning',
+          markdownCleaned: markdownCleaned,
         },
       });
     } catch (fetchError) {
@@ -268,6 +383,7 @@ export const handler = async (event, context) => {
       error: error.message,
       stack: error.stack,
       requestId: context.awsRequestId,
+      duration: Date.now() - startTime,
     });
 
     return createResponse(500, {
@@ -276,6 +392,7 @@ export const handler = async (event, context) => {
       requestId: context.awsRequestId,
       duration: Date.now() - startTime,
       timestamp: new Date().toISOString(),
+      troubleshooting: 'Check CloudWatch logs for detailed error information',
     });
   }
 };
