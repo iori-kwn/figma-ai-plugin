@@ -1,0 +1,72 @@
+{
+  "CallerReference": "figma-plugin-security-" + Date.now(),
+  "Comment": "CloudFront distribution for Figma plugin Lambda URL with WAF protection",
+  "DefaultCacheBehavior": {
+    "TargetOriginId": "lambda-origin",
+    "ViewerProtocolPolicy": "https-only",
+    "TrustedSigners": {
+      "Enabled": false,
+      "Quantity": 0
+    },
+    "ForwardedValues": {
+      "QueryString": true,
+      "Cookies": {
+        "Forward": "none"
+      },
+      "Headers": {
+        "Quantity": 4,
+        "Items": [
+          "Authorization",
+          "Content-Type",
+          "User-Agent",
+          "X-Figma-Token"
+        ]
+      }
+    },
+    "MinTTL": 0,
+    "DefaultTTL": 0,
+    "MaxTTL": 0,
+    "Compress": true,
+    "AllowedMethods": {
+      "Quantity": 7,
+      "Items": [
+        "GET",
+        "HEAD",
+        "OPTIONS",
+        "PUT",
+        "POST",
+        "PATCH",
+        "DELETE"
+      ],
+      "CachedMethods": {
+        "Quantity": 2,
+        "Items": [
+          "GET",
+          "HEAD"
+        ]
+      }
+    }
+  },
+  "Origins": {
+    "Quantity": 1,
+    "Items": [
+      {
+        "Id": "lambda-origin",
+        "DomainName": "45eu4yy74z3uljhe74ogyda4bm0stwqt.lambda-url.ap-northeast-1.on.aws",
+        "CustomOriginConfig": {
+          "HTTPPort": 443,
+          "HTTPSPort": 443,
+          "OriginProtocolPolicy": "https-only",
+          "OriginSslProtocols": {
+            "Quantity": 1,
+            "Items": [
+              "TLSv1.2"
+            ]
+          }
+        }
+      }
+    ]
+  },
+  "Enabled": true,
+  "PriceClass": "PriceClass_100"
+}
